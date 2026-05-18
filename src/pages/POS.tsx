@@ -289,7 +289,7 @@ const POS = () => {
   
   encoder
     .initialize()
-    .text('SHREE  JEWELLERS')
+    .text('Rajlakshmi   JEWELLERS')
     .newline()
     .text('================================')
     .newline()
@@ -402,7 +402,7 @@ const generateReceiptHTML = (
     </head>
     <body>
       <div class="header">
-        <h1>SHREE VAISHNAVI JEWELLERS</h1>
+        <h1>Rajlakshmi  VAISHNAVI JEWELLERS</h1>
         <p>${today}</p>
       </div>
       <div class="details">
@@ -466,7 +466,7 @@ const generateReceiptHTML = (
       </div>
 
       <div class="footer">
-        Thank you for shopping at Shree Jewellers!
+        Thank you for shopping at Rajlakshmi Jewel ERP!
       </div>
     </body>
     </html>

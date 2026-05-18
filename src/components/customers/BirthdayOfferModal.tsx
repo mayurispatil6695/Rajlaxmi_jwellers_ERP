@@ -27,7 +27,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
-const STORE_NAME = "Shree Jewellers";
+const STORE_NAME = "Rajlakshmi Jewel ERP";
 const STORE_PHONE = "+91 98765 43210";   
 
 function generateCouponCode(name: string): string {

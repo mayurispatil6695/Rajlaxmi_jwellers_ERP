@@ -50,7 +50,7 @@ export const generateReceiptHTML = (saleData: ReceiptData, docTitle: string) => 
     </style>
     </head>
     <body>
-      <div class="header"><h1>SHREE VAISHNAVI JEWELLERS</h1><p>${today}</p></div>
+      <div class="header"><h1>Rajlakshmi  VAISHNAVI JEWELLERS</h1><p>${today}</p></div>
       <div class="details">
         <span><strong>${title}:</strong> ${saleData.invoiceNumber}</span>
         <span><strong>Gold Rate:</strong> ${goldRateDisplay}</span>
@@ -94,7 +94,7 @@ export const generateReceiptHTML = (saleData: ReceiptData, docTitle: string) => 
         <div>By Cheque: ₹${saleData.paymentBreakdown?.cheque?.toLocaleString() || '0'}</div>
         <div>By Online: ₹${saleData.paymentBreakdown?.online?.toLocaleString() || '0'}</div>
       </div>
-      <div class="footer">Thank you for shopping at Shree Jewellers!</div>
+      <div class="footer">Thank you for shopping at Rajlakshmi Jewel ERP!</div>
     </body>
     </html>
   `;

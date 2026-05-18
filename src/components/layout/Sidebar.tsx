@@ -74,7 +74,7 @@ export function Sidebar() {
         <div className="flex items-center gap-3">
           <img
             src={logoImg}
-            alt="Shree Jewellers"
+            alt="Rajlakshmi Jewel ERP"
             className={cn(
               "shrink-0 object-contain",
               collapsed && !mobile ? "h-9 w-9" : "h-10 w-10"
@@ -82,7 +82,7 @@ export function Sidebar() {
           />
           {(!collapsed || mobile) && (
             <div className="animate-fade-in">
-              <h1 className="font-display text-lg font-bold text-gradient-gold">Shree</h1>
+              <h1 className="font-display text-lg font-bold text-gradient-gold">Rajlakshmi </h1>
               <p className="text-xs text-muted-foreground -mt-0.5">Jewellers ERP</p>
             </div>
           )}

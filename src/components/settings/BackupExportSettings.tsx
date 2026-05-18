@@ -108,7 +108,7 @@ function objectToCsvRows(obj: Record<string, unknown>): string[] {
 function generatePdf(data: ExportData): void {
   const doc = new jsPDF();
   doc.setFontSize(18);
-  doc.text('Shree Jewellers – Data Export', 14, 20);
+  doc.text('Rajlakshmi Jewel ERP – Data Export', 14, 20);
   doc.setFontSize(10);
   doc.text(`Generated: ${data.exportedAt}`, 14, 28);
 
@@ -154,7 +154,7 @@ function generatePdf(data: ExportData): void {
     addSection('All User Profiles (Admin)', data.allProfiles, ['email', 'display_name', 'created_at']);
   }
 
-  doc.save(`shree-jewellers-export-${Date.now()}.pdf`);
+  doc.save(`Rajlakshmi -jewellers-export-${Date.now()}.pdf`);
 }
 
 // ---------- Helper: Convert export data to CSV string ----------
@@ -249,7 +249,7 @@ export function BackupExportSettings() {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `shree-jewellers-export-${type}-${fmt}-${Date.now()}.${extension}`;
+        link.download = `Rajlakshmi -jewellers-export-${type}-${fmt}-${Date.now()}.${extension}`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
