@@ -180,7 +180,7 @@ const validateEmployeeForm = () => {
       <Card className="w-full max-w-md relative z-10 border-border/50 bg-card/80 backdrop-blur-xl shadow-2xl">
         <CardHeader className="text-center space-y-2">
           <img src={logoImg} alt="Rajlakshmi Jewel ERP" className="mx-auto h-20 w-auto object-contain mb-2" />
-          <CardTitle className="text-2xl font-bold font-display">Rajlakshmi Jewel ERP</CardTitle>
+          <CardTitle className="text-2xl font-bold font-display">Welcome</CardTitle>
 <CardDescription>Sign in to access your jewellery ERP</CardDescription>
         </CardHeader>
         <CardContent>
