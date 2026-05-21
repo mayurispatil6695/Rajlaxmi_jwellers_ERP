@@ -21,7 +21,7 @@ export function ExchangeItemComponent({ item, onRemove }: ExchangeItemProps) {
       <div>
         <p className="font-medium text-sm">{item.description}</p>
         <p className="text-xs text-muted-foreground">
-          {item.weight}g • {item.purity} • ₹{item.rate}/g
+          {item.weight > 0 ? `${item.weight}g • ` : ""}₹{item.value.toLocaleString()}
         </p>
       </div>
       <div className="flex items-center gap-3">

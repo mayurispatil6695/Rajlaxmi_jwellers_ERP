@@ -6,6 +6,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import logoImg from '@/assets/logo.png';
 import {
+  RotateCcw,
   LayoutDashboard,
   ShoppingCart,
   Package,
@@ -44,6 +45,7 @@ const mainNavItems: NavItem[] = [
   { icon: Users, label: "Customers", href: "/customers" },
   { icon: Truck, label: "Suppliers", href: "/suppliers" },
   { icon: ShoppingCart, label: "Purchase Orders", href: "/purchase-orders" },
+  { icon: RotateCcw, label: "Exchange Items", href: "/exchange-dashboard" },
   { icon: TrendingUp, label: "Investments", href: "/investments" },
   { icon: Megaphone, label: "Marketing", href: "/marketing" },
 

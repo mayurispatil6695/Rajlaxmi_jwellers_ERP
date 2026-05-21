@@ -26,7 +26,7 @@ import { ExchangeItemComponent, type ExchangeItem } from "@/components/pos/Excha
 import { ExchangeModal } from "@/components/pos/ExchangeModal";
 import qz from 'qz-tray';
 import ReceiptPrinterEncoder from '@point-of-sale/receipt-printer-encoder';
-
+import { CameraScanner } from "@/components/pos/CameraScanner";
 interface Product {
   id: string;
   sku: string;
@@ -138,38 +138,38 @@ const POS = () => {
   });
 
   useEffect(() => {
-  const handleKeyDown = (e: KeyboardEvent) => {
-    // Ctrl + N → New Sale (reset cart, clear customer)
-    if (e.ctrlKey && e.key === 'n') {
-      e.preventDefault();
-      if (cart.length > 0) {
-        if (confirm("Clear current cart and start new sale?")) {
-          setCart([]);
-          setSelectedCustomer(null);
-          setExchangeItems([]);
-          setDocType("invoice");
-          setAmountPaid(0);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl + N → New Sale (reset cart, clear customer)
+      if (e.ctrlKey && e.key === 'n') {
+        e.preventDefault();
+        if (cart.length > 0) {
+          if (confirm("Clear current cart and start new sale?")) {
+            setCart([]);
+            setSelectedCustomer(null);
+            setExchangeItems([]);
+            setDocType("invoice");
+            setAmountPaid(0);
+          }
         }
       }
-    }
-    // Ctrl + P → Print last receipt (if you have a last receipt variable)
-    if (e.ctrlKey && e.key === 'p') {
-      e.preventDefault();
-      if (lastPrintData) {
-        tryPrint(lastPrintData);
-      } else {
-        toast.info("No receipt to print");
+      // Ctrl + P → Print last receipt (if you have a last receipt variable)
+      if (e.ctrlKey && e.key === 'p') {
+        e.preventDefault();
+        if (lastPrintData) {
+          tryPrint(lastPrintData);
+        } else {
+          toast.info("No receipt to print");
+        }
       }
-    }
-    // F2 → Focus search input
-    if (e.key === 'F2') {
-      e.preventDefault();
-      scanInputRef.current?.focus();
-    }
-  };
-  window.addEventListener('keydown', handleKeyDown);
-  return () => window.removeEventListener('keydown', handleKeyDown);
-}, [cart, lastPrintData]);
+      // F2 → Focus search input
+      if (e.key === 'F2') {
+        e.preventDefault();
+        scanInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cart, lastPrintData]);
 
   useEffect(() => {
     if (!selectedCustomer || !isTodayBirthday(selectedCustomer.date_of_birth)) {
@@ -273,112 +273,112 @@ const POS = () => {
 
   // --- Print functions (ESC/POS and HTML) ---
   const generateReceiptData = (saleData: {
-  invoice_number: string;
-  customer_name: string;
-  created_at: string;
-  items: { name: string; qty: number; price: number }[];
-  subtotal: number;
-  tax: number;
-  total: number;
-  exchangeItems?: ExchangeItem[];
-  paymentMethod?: string;
-  amountPaid?: number;
-  totalExchangeValue?: number;
-}) => {
-  const encoder = new ReceiptPrinterEncoder({ language: 'esc-pos', width: 48, debug: false });
-  
-  encoder
-    .initialize()
-    .text('Rajlakshmi   JEWELLERS')
-    .newline()
-    .text('================================')
-    .newline()
-    .text(`${docType === "estimate" ? "ESTIMATE" : "TAX INVOICE"}: ${saleData.invoice_number}`)
-    .text(`Date: ${new Date(saleData.created_at).toLocaleString()}`)
-    .text(`Customer: ${saleData.customer_name || 'Walk-in Customer'}`)
-    .newline()
-    .text('Items:')
-    .newline();
-  
-  // Print each item
-  saleData.items.forEach(item => {
-    const line = `${item.name} x${item.qty}`;
-    const price = `₹${(item.price * item.qty).toLocaleString()}`;
-    encoder.text(line.padEnd(30) + price.padStart(10)).newline();
-  });
-  
-  // Print exchange items if any
-  const exchangeTotal = saleData.totalExchangeValue || 
-    saleData.exchangeItems?.reduce((sum, ex) => sum + (ex.value || 0), 0) || 0;
-  
-  if (saleData.exchangeItems && saleData.exchangeItems.length > 0) {
-    encoder.text('--------------------------------').newline();
-    encoder.text('EXCHANGE METAL:').newline();
-    saleData.exchangeItems.forEach(ex => {
-     const type = ex.description || 'Old Ornament';
-      const weight = ex.weight || 0;
-      const rate = ex.rate || 0;
-      const value = ex.value || 0;
-      encoder.text(`${type} : ${weight}g @ ₹${rate}/gm = ₹${value}`).newline();
-    });
-    encoder.text(`Exchange Deduction: -₹${exchangeTotal.toLocaleString()}`).newline();
-  }
-  
-  // Print payment breakdown
-  const paymentMethod = saleData.paymentMethod || 'Cash';
-  const amountPaid = saleData.amountPaid || saleData.total;
-  
-  encoder.text('--------------------------------').newline();
-  encoder.text('PAYMENT:').newline();
-  encoder.text(`Method: ${paymentMethod}`).newline();
-  encoder.text(`Paid: ₹${amountPaid.toLocaleString()}`).newline();
-  if (amountPaid < saleData.total) {
-    encoder.text(`Pending: ₹${(saleData.total - amountPaid).toLocaleString()}`).newline();
-  }
-  
-  encoder.text('================================').newline();
-  encoder.text(`Subtotal:     ₹${saleData.subtotal.toLocaleString()}`).newline();
-  encoder.text(`GST (3%):     ₹${saleData.tax.toLocaleString()}`).newline();
-  if (exchangeTotal > 0) {
-    encoder.text(`Exchange:    -₹${exchangeTotal.toLocaleString()}`).newline();
-  }
-  encoder.text(`Total:        ₹${saleData.total.toLocaleString()}`).newline();
-  encoder.text('================================').newline();
-  encoder.text('Thank you for shopping!').newline();
-  encoder.cut('full');
-  
-  return encoder.encode();
-};
-const generateReceiptHTML = (
-  saleData: {
-    invoiceNumber: string;
-    customerName: string;
-    created_at?: string;
-    items: { 
-      name: string; 
-      qty: number; 
-      price: number;
-      weight?: number;
-      making?: number;
-      purity?: string;
-    }[];
+    invoice_number: string;
+    customer_name: string;
+    created_at: string;
+    items: { name: string; qty: number; price: number }[];
     subtotal: number;
     tax: number;
     total: number;
-    docType: "estimate" | "invoice";
-    goldRate?: number;
     exchangeItems?: ExchangeItem[];
-    paymentBreakdown?: { cash: number; card: number; cheque: number; online: number };
-    netPayable?: number;
-  },
-  docTitle: string
-) => {
-  const title = saleData.docType === "estimate" ? "ESTIMATE" : "TAX INVOICE";
-  const today = new Date().toLocaleString();
-  const goldRateDisplay = saleData.goldRate ? `₹${saleData.goldRate.toLocaleString()}/gm` : '—';
-  const exchangeTotal = saleData.exchangeItems?.reduce((sum, i) => sum + i.value, 0) || 0;
+    paymentMethod?: string;
+    amountPaid?: number;
+    totalExchangeValue?: number;
+  }) => {
+    const encoder = new ReceiptPrinterEncoder({ language: 'esc-pos', width: 48, debug: false });
 
-  return `
+    encoder
+      .initialize()
+      .text('Rajlakshmi   JEWELLERS')
+      .newline()
+      .text('================================')
+      .newline()
+      .text(`${docType === "estimate" ? "ESTIMATE" : "TAX INVOICE"}: ${saleData.invoice_number}`)
+      .text(`Date: ${new Date(saleData.created_at).toLocaleString()}`)
+      .text(`Customer: ${saleData.customer_name || 'Walk-in Customer'}`)
+      .newline()
+      .text('Items:')
+      .newline();
+
+    // Print each item
+    saleData.items.forEach(item => {
+      const line = `${item.name} x${item.qty}`;
+      const price = `₹${(item.price * item.qty).toLocaleString()}`;
+      encoder.text(line.padEnd(30) + price.padStart(10)).newline();
+    });
+
+    // Print exchange items if any
+    const exchangeTotal = saleData.totalExchangeValue ||
+      saleData.exchangeItems?.reduce((sum, ex) => sum + (ex.value || 0), 0) || 0;
+
+    if (saleData.exchangeItems && saleData.exchangeItems.length > 0) {
+      encoder.text('--------------------------------').newline();
+      encoder.text('EXCHANGE METAL:').newline();
+      saleData.exchangeItems.forEach(ex => {
+        const type = ex.description || 'Old Ornament';
+        const weight = ex.weight || 0;
+        const rate = ex.rate || 0;
+        const value = ex.value || 0;
+        encoder.text(`${type} : ${weight}g @ ₹${rate}/gm = ₹${value}`).newline();
+      });
+      encoder.text(`Exchange Deduction: -₹${exchangeTotal.toLocaleString()}`).newline();
+    }
+
+    // Print payment breakdown
+    const paymentMethod = saleData.paymentMethod || 'Cash';
+    const amountPaid = saleData.amountPaid || saleData.total;
+
+    encoder.text('--------------------------------').newline();
+    encoder.text('PAYMENT:').newline();
+    encoder.text(`Method: ${paymentMethod}`).newline();
+    encoder.text(`Paid: ₹${amountPaid.toLocaleString()}`).newline();
+    if (amountPaid < saleData.total) {
+      encoder.text(`Pending: ₹${(saleData.total - amountPaid).toLocaleString()}`).newline();
+    }
+
+    encoder.text('================================').newline();
+    encoder.text(`Subtotal:     ₹${saleData.subtotal.toLocaleString()}`).newline();
+    encoder.text(`GST (3%):     ₹${saleData.tax.toLocaleString()}`).newline();
+    if (exchangeTotal > 0) {
+      encoder.text(`Exchange:    -₹${exchangeTotal.toLocaleString()}`).newline();
+    }
+    encoder.text(`Total:        ₹${saleData.total.toLocaleString()}`).newline();
+    encoder.text('================================').newline();
+    encoder.text('Thank you for shopping!').newline();
+    encoder.cut('full');
+
+    return encoder.encode();
+  };
+  const generateReceiptHTML = (
+    saleData: {
+      invoiceNumber: string;
+      customerName: string;
+      created_at?: string;
+      items: {
+        name: string;
+        qty: number;
+        price: number;
+        weight?: number;
+        making?: number;
+        purity?: string;
+      }[];
+      subtotal: number;
+      tax: number;
+      total: number;
+      docType: "estimate" | "invoice";
+      goldRate?: number;
+      exchangeItems?: ExchangeItem[];
+      paymentBreakdown?: { cash: number; card: number; cheque: number; online: number };
+      netPayable?: number;
+    },
+    docTitle: string
+  ) => {
+    const title = saleData.docType === "estimate" ? "ESTIMATE" : "TAX INVOICE";
+    const today = new Date().toLocaleString();
+    const goldRateDisplay = saleData.goldRate ? `₹${saleData.goldRate.toLocaleString()}/gm` : '—';
+    const exchangeTotal = saleData.exchangeItems?.reduce((sum, i) => sum + i.value, 0) || 0;
+
+    return `
     <!DOCTYPE html>
     <html>
     <head>
@@ -425,10 +425,10 @@ const generateReceiptHTML = (
         </thead>
         <tbody>
           ${saleData.items.map(item => {
-            const weight = item.weight || (item.price / (saleData.goldRate || 5000)).toFixed(2);
-            const making = item.making || 0;
-            const amount = item.price * item.qty;
-            return `
+      const weight = item.weight || (item.price / (saleData.goldRate || 5000)).toFixed(2);
+      const making = item.making || 0;
+      const amount = item.price * item.qty;
+      return `
               <tr>
                 <td>${item.name} ${item.purity ? `(${item.purity})` : ''}</td>
                 <td>${item.qty}</td>
@@ -437,7 +437,7 @@ const generateReceiptHTML = (
                 <td class="right">₹${amount.toLocaleString()}</td>
               </tr>
             `;
-          }).join('')}
+    }).join('')}
         </tbody>
       </table>
 
@@ -471,119 +471,119 @@ const generateReceiptHTML = (
     </body>
     </html>
   `;
-};
- 
-const printViaBrowser = (saleData: {
-  invoiceNumber: string;
-  customerName: string;
-  items: CartItem[];   // use full CartItem type to get weight, purity, etc.
-  subtotal: number;
-  tax: number;
-  total: number;
-  docType: "estimate" | "invoice";
-  goldRate?: number;
-  exchangeItems?: ExchangeItem[];
-  paymentBreakdown?: { cash: number; card: number; cheque: number; online: number };
-  netPayable?: number;
-}) => {
-  const dateStr = new Date().toISOString().slice(0, 10);
-  const safeCustomerName = saleData.customerName
-    .replace(/[^a-z0-9]/gi, '_')
-    .substring(0, 20);
-  const pdfTitle = `${saleData.docType === 'estimate' ? 'ESTIMATE' : 'INVOICE'}_${saleData.invoiceNumber}_${safeCustomerName}_${dateStr}`;
-
-  // Prepare items for receipt (include weight, purity, making)
-  const receiptItems = saleData.items.map(item => ({
-    name: item.name,
-    qty: item.qty,
-    price: item.unit_price,
-    weight: item.weight,
-    purity: item.purity,
-    making: (item.unit_price - (saleData.goldRate || 0) * item.weight) > 0 
-              ? (item.unit_price - (saleData.goldRate || 0) * item.weight) 
-              : 0,
-  }));
-
-  const receiptData = {
-    invoiceNumber: saleData.invoiceNumber,
-    customerName: saleData.customerName,
-    items: receiptItems,
-    subtotal: saleData.subtotal,
-    tax: saleData.tax,
-    total: saleData.total,
-    docType: saleData.docType,
-    goldRate: saleData.goldRate,
-    exchangeItems: saleData.exchangeItems,
-    paymentBreakdown: saleData.paymentBreakdown,
-    netPayable: saleData.netPayable,
   };
 
-  const printContent = generateReceiptHTML(receiptData, pdfTitle);
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) {
-    toast.error('Please allow pop-ups to print');
-    return;
-  }
-  printWindow.document.write(printContent);
-  printWindow.document.close();
-  printWindow.focus();
-  printWindow.print();
-};
+  const printViaBrowser = (saleData: {
+    invoiceNumber: string;
+    customerName: string;
+    items: CartItem[];   // use full CartItem type to get weight, purity, etc.
+    subtotal: number;
+    tax: number;
+    total: number;
+    docType: "estimate" | "invoice";
+    goldRate?: number;
+    exchangeItems?: ExchangeItem[];
+    paymentBreakdown?: { cash: number; card: number; cheque: number; online: number };
+    netPayable?: number;
+  }) => {
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const safeCustomerName = saleData.customerName
+      .replace(/[^a-z0-9]/gi, '_')
+      .substring(0, 20);
+    const pdfTitle = `${saleData.docType === 'estimate' ? 'ESTIMATE' : 'INVOICE'}_${saleData.invoiceNumber}_${safeCustomerName}_${dateStr}`;
+
+    // Prepare items for receipt (include weight, purity, making)
+    const receiptItems = saleData.items.map(item => ({
+      name: item.name,
+      qty: item.qty,
+      price: item.unit_price,
+      weight: item.weight,
+      purity: item.purity,
+      making: (item.unit_price - (saleData.goldRate || 0) * item.weight) > 0
+        ? (item.unit_price - (saleData.goldRate || 0) * item.weight)
+        : 0,
+    }));
+
+    const receiptData = {
+      invoiceNumber: saleData.invoiceNumber,
+      customerName: saleData.customerName,
+      items: receiptItems,
+      subtotal: saleData.subtotal,
+      tax: saleData.tax,
+      total: saleData.total,
+      docType: saleData.docType,
+      goldRate: saleData.goldRate,
+      exchangeItems: saleData.exchangeItems,
+      paymentBreakdown: saleData.paymentBreakdown,
+      netPayable: saleData.netPayable,
+    };
+
+    const printContent = generateReceiptHTML(receiptData, pdfTitle);
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Please allow pop-ups to print');
+      return;
+    }
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  };
   const tryPrint = useCallback(async (saleData: {
-  invoice_number: string;
-  customer_name: string;
-  created_at: string;
-  items: { name: string; qty: number; price: number }[];
-  subtotal: number;
-  tax: number;
-  total: number;
-}) => {
-  const totalExchangeValue = exchangeItems.reduce((sum, i) => sum + i.value, 0);
-  
-  // Build complete data for the receipt (including all extra fields)
-  const browserData = {
-    invoiceNumber: saleData.invoice_number,
-    customerName: saleData.customer_name,
-    items: cart,   // send full CartItem objects (with weight, purity, etc.)
-    subtotal: saleData.subtotal,
-    tax: saleData.tax,
-    total: saleData.total,
-    docType,
-    goldRate: goldRate,
-    exchangeItems: exchangeItems,
-    paymentBreakdown: {
-      cash: paymentMethod === "Cash" ? amountPaid : 0,
-      card: paymentMethod === "Card" ? amountPaid : 0,
-      cheque: 0,   // add cheque if needed
-      online: paymentMethod === "UPI" ? amountPaid : 0,
-    },
-    netPayable: total,
-  };
+    invoice_number: string;
+    customer_name: string;
+    created_at: string;
+    items: { name: string; qty: number; price: number }[];
+    subtotal: number;
+    tax: number;
+    total: number;
+  }) => {
+    const totalExchangeValue = exchangeItems.reduce((sum, i) => sum + i.value, 0);
 
-  try {
-    await qz.websocket.connect();
-    const printers = await qz.printers.find();
-    const thermalPrinter = printers.find(p =>
-      p.name.toLowerCase().includes('epson') || p.name.toLowerCase().includes('tm-t82') ||
-      p.name.toLowerCase().includes('xp-80c') || p.name.toLowerCase().includes('thermal') || p.name.toLowerCase().includes('printer')
-    );
-    if (!thermalPrinter) throw new Error('No thermal printer found');
-    const config = qz.configs.create(thermalPrinter.name);
-    const receiptData = generateReceiptData({
-  ...saleData,
-  exchangeItems: exchangeItems,
-  paymentMethod: paymentMethod,
-  amountPaid: amountPaid,
-  totalExchangeValue: totalExchangeValue,
-});
-    await qz.print(config, receiptData);
-    await qz.websocket.disconnect();
-    toast.success('Bill printed on thermal printer!');
-  } catch (err) {
-    console.warn('QZ Tray failed, fallback to browser print', err);
-    printViaBrowser(browserData);   // now passes all extra fields
-  }
-}, [docType, goldRate, exchangeItems, paymentMethod, amountPaid, total, cart]);
+    // Build complete data for the receipt (including all extra fields)
+    const browserData = {
+      invoiceNumber: saleData.invoice_number,
+      customerName: saleData.customer_name,
+      items: cart,   // send full CartItem objects (with weight, purity, etc.)
+      subtotal: saleData.subtotal,
+      tax: saleData.tax,
+      total: saleData.total,
+      docType,
+      goldRate: goldRate,
+      exchangeItems: exchangeItems,
+      paymentBreakdown: {
+        cash: paymentMethod === "Cash" ? amountPaid : 0,
+        card: paymentMethod === "Card" ? amountPaid : 0,
+        cheque: 0,   // add cheque if needed
+        online: paymentMethod === "UPI" ? amountPaid : 0,
+      },
+      netPayable: total,
+    };
+
+    try {
+      await qz.websocket.connect();
+      const printers = await qz.printers.find();
+      const thermalPrinter = printers.find(p =>
+        p.name.toLowerCase().includes('epson') || p.name.toLowerCase().includes('tm-t82') ||
+        p.name.toLowerCase().includes('xp-80c') || p.name.toLowerCase().includes('thermal') || p.name.toLowerCase().includes('printer')
+      );
+      if (!thermalPrinter) throw new Error('No thermal printer found');
+      const config = qz.configs.create(thermalPrinter.name);
+      const receiptData = generateReceiptData({
+        ...saleData,
+        exchangeItems: exchangeItems,
+        paymentMethod: paymentMethod,
+        amountPaid: amountPaid,
+        totalExchangeValue: totalExchangeValue,
+      });
+      await qz.print(config, receiptData);
+      await qz.websocket.disconnect();
+      toast.success('Bill printed on thermal printer!');
+    } catch (err) {
+      console.warn('QZ Tray failed, fallback to browser print', err);
+      printViaBrowser(browserData);   // now passes all extra fields
+    }
+  }, [docType, goldRate, exchangeItems, paymentMethod, amountPaid, total, cart]);
 
 
   // --- Estimate generation (no stock deduction, no payment) ---
@@ -622,7 +622,7 @@ const printViaBrowser = (saleData: {
       items: cart.map(item => ({ name: item.name, qty: item.qty, price: item.unit_price })),
       subtotal, tax, total,
     };
-    setLastPrintData(printData); 
+    setLastPrintData(printData);
     await tryPrint(printData);
     // Reset cart and form
     setCart([]);
@@ -698,7 +698,7 @@ const printViaBrowser = (saleData: {
         items: cart.map(item => ({ name: item.name, qty: item.qty, price: item.unit_price })),
         subtotal, tax, total,
       };
-      setLastPrintData(printData); 
+      setLastPrintData(printData);
       await tryPrint(printData);
       setCart([]);
       setSelectedCustomer(null);
@@ -822,10 +822,16 @@ const printViaBrowser = (saleData: {
           {/* Scanner / Search */}
           <Card variant="elevated">
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base sm:text-lg"><Barcode className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />Scan / Search Products<Badge variant="secondary" className="text-[10px] ml-auto"><Zap className="w-3 h-3 mr-1" />Auto-detect</Badge></CardTitle>
+              <CardTitle>Scan / Search Products</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><Input ref={scanInputRef} placeholder="Scan barcode or type product name & press Enter..." className="pl-10" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={handleSearchKeyDown} autoFocus /></div>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input ref={scanInputRef} placeholder="Scan barcode or type product name..." className="pl-10" />
+              </div>
+              <div className="mt-2">
+                <CameraScanner onScan={handleBarcodeScan} />
+              </div>
             </CardContent>
           </Card>
           {/* Inventory Table */}

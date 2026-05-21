@@ -32,8 +32,9 @@ import PendingPaymentsPage from "@/pages/PendingPaymentsPage";
 import Suppliers from "@/pages/Purchase/Suppliers";
 import PurchaseOrders from "@/pages/Purchase/PurchaseOrders";
 import StockAdjustmentsPage from "@/components/inventory/StockAdjustments";
+import { ExchangeDashboard } from "@/components/dashboard/ExchangeDashboard";
 
-// Inside the routes:
+
 
 const queryClient = new QueryClient();
 
@@ -67,6 +68,8 @@ const App = () => (
               <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
               <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+
+<Route path="/exchange-dashboard" element={<ExchangeDashboard />} />
 
               {/* Employee Protected Routes */}
               <Route path="/employee-dashboard" element={<EmployeeProtectedRoute><EmployeeDashboard /></EmployeeProtectedRoute>} />

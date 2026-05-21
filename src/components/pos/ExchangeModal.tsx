@@ -3,7 +3,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { ExchangeItem } from "./ExchangeItem";
 
@@ -14,46 +13,38 @@ interface ExchangeModalProps {
 }
 
 export function ExchangeModal({ open, onOpenChange, onAddItem }: ExchangeModalProps) {
-  const [form, setForm] = useState({
-    description: "",
-    weight: "",
-    purity: "22K",
-    rate: "",
-  });
-
-  // Purity factors – "None" means 100% purity (factor = 1)
-  const purityFactors: Record<string, number> = {
-    "24K": 1,
-    "22K": 0.916,
-    "18K": 0.75,
-    "None": 1,           // ← Now gives full value
-  };
-
-  const calculatedValue = () => {
-    const weight = parseFloat(form.weight) || 0;
-    const rate = parseFloat(form.rate) || 0;
-    const factor = purityFactors[form.purity] ?? 1;
-    return weight * factor * rate;
-  };
+  const [description, setDescription] = useState("");
+  const [weight, setWeight] = useState("");
+  const [amount, setAmount] = useState("");
 
   const handleAdd = () => {
-    const weight = parseFloat(form.weight);
-    const rate = parseFloat(form.rate);
-    if (!form.description || isNaN(weight) || weight <= 0 || isNaN(rate) || rate <= 0) {
-      toast.error("Please fill all fields correctly");
+    if (!description.trim()) {
+      toast.error("Please enter a description");
       return;
     }
-    const value = calculatedValue();
+    const weightValue = parseFloat(weight);
+    if (isNaN(weightValue) || weightValue <= 0) {
+      toast.error("Please enter a valid weight (greater than 0)");
+      return;
+    }
+    const exchangeValue = parseFloat(amount);
+    if (isNaN(exchangeValue) || exchangeValue <= 0) {
+      toast.error("Please enter a valid exchange amount (greater than 0)");
+      return;
+    }
+
     const newItem: ExchangeItem = {
       id: crypto.randomUUID(),
-      description: form.description,
-      weight,
-      purity: form.purity,
-      rate,
-      value,
+      description: description.trim(),
+      weight: weightValue,
+      purity: "Fixed",           // dummy value for compatibility
+      rate: 0,                   // dummy value
+      value: exchangeValue,      // the fixed amount entered by user
     };
     onAddItem(newItem);
-    setForm({ description: "", weight: "", purity: "22K", rate: "" });
+    setDescription("");
+    setWeight("");
+    setAmount("");
     onOpenChange(false);
     toast.success("Exchange item added");
   };
@@ -62,53 +53,42 @@ export function ExchangeModal({ open, onOpenChange, onAddItem }: ExchangeModalPr
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Add Old Jewellery Exchange</DialogTitle>
+          <DialogTitle>Add Exchange Item</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
             <Label>Description</Label>
             <Input
               placeholder="e.g., Old Gold Ring"
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Weight (g)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                placeholder="10.5"
-                value={form.weight}
-                onChange={(e) => setForm({ ...form, weight: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Purity</Label>
-              <Select value={form.purity} onValueChange={(v) => setForm({ ...form, purity: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="24K">24K (99.9%)</SelectItem>
-                  <SelectItem value="22K">22K (91.6%)</SelectItem>
-                  <SelectItem value="18K">18K (75%)</SelectItem>
-                  <SelectItem value="None">None (100%)</SelectItem>   {/* Now gives full rate */}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
           <div className="space-y-2">
-            <Label>Rate per gram (₹)</Label>
+            <Label>Weight (g)</Label>
             <Input
               type="number"
-              placeholder="e.g., 7200"
-              value={form.rate}
-              onChange={(e) => setForm({ ...form, rate: e.target.value })}
+              step="0.01"
+              placeholder="10.5"
+              value={weight}
+              onChange={(e) => setWeight(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Exchange Amount (₹)</Label>
+            <Input
+              type="number"
+              step="100"
+              placeholder="e.g., 50000"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
             />
           </div>
           <div className="rounded-lg bg-muted/30 p-2 text-sm">
-            <p className="font-medium">Calculated Value:</p>
-            <p className="text-primary font-bold">₹{calculatedValue().toLocaleString()}</p>
+            <p className="font-medium">Amount to deduct:</p>
+            <p className="text-primary font-bold">
+              ₹{amount ? parseFloat(amount).toLocaleString() : "0"}
+            </p>
           </div>
         </div>
         <DialogFooter>

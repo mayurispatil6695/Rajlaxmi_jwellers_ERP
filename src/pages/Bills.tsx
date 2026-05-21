@@ -305,42 +305,131 @@ const Bills = () => {
       <Dialog open={!!selectedBill} onOpenChange={() => setSelectedBill(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{selectedBill?.doc_type === "estimate" ? "Estimate" : "Invoice"} {selectedBill?.invoice_number}</DialogTitle></DialogHeader>
-          {selectedBill && (
-            <div className="space-y-4">
-              <div ref={printRef}>
-                <div style={{ textAlign: "center", marginBottom: 16, borderBottom: "2px solid #c8a45a", paddingBottom: 10 }}>
-                  <h1 style={{ fontSize: 18, margin: 0, color: "#c8a45a" }}>{selectedBill.doc_type === "estimate" ? "ESTIMATE" : "INVOICE"}</h1>
-                  <p style={{ fontSize: 12 }}>{selectedBill.invoice_number}</p>
-                </div>
-                <div className="space-y-1 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Customer</span><span>{selectedBill.customer_name || "Walk-in"}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Date</span><span>{selectedBill.created_at ? format(new Date(selectedBill.created_at), "dd MMM yyyy, hh:mm a") : "—"}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Payment</span><span>{selectedBill.payment_method || "N/A"}</span></div>
-                </div>
-                <table style={{ width: "100%", borderCollapse: "collapse", margin: "12px 0" }}>
-                  <thead><tr style={{ borderBottom: "2px solid #ddd" }}><th style={{ textAlign: "left", padding: "6px 4px" }}>Item</th><th style={{ textAlign: "center", padding: "6px 4px" }}>Qty</th><th style={{ textAlign: "right", padding: "6px 4px" }}>Amount</th></tr></thead>
-                  <tbody>
-                    {(Array.isArray(selectedBill.items) ? selectedBill.items : []).map((item, i) => (
-                      <tr key={i} style={{ borderBottom: "1px solid #eee" }}><td style={{ padding: "6px 4px" }}>{item.name}</td><td style={{ textAlign: "center", padding: "6px 4px" }}>{item.qty}</td><td style={{ textAlign: "right", padding: "6px 4px" }}>₹{((item.unit_price || item.price || 0) * (item.qty || 1)).toLocaleString()}</td></tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="border-t pt-3 space-y-1">
-                  <div className="flex justify-between"><span>Subtotal</span><span>₹{(selectedBill.subtotal || 0).toLocaleString()}</span></div>
-                  <div className="flex justify-between"><span>Tax (3%)</span><span>₹{(selectedBill.tax || 0).toLocaleString()}</span></div>
-                  {(selectedBill.discount || 0) > 0 && <div className="flex justify-between"><span>Discount</span><span className="text-destructive">-₹{(selectedBill.discount || 0).toLocaleString()}</span></div>}
-                  <div className="flex justify-between font-bold text-base pt-1 border-t"><span>Total</span><span className="text-primary">₹{(selectedBill.total || 0).toLocaleString()}</span></div>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2 pt-2 border-t">
-                <Button variant="outline" size="sm" onClick={handlePrint}><Printer className="w-4 h-4 mr-1" />Print</Button>
-                <Button variant="outline" size="sm" className="text-green-600" onClick={() => handleWhatsAppShare(selectedBill)}><MessageCircle className="w-4 h-4 mr-1" />WhatsApp</Button>
-                <Button variant="outline" size="sm" onClick={() => handleExport(selectedBill)}><Download className="w-4 h-4 mr-1" />Export</Button>
-                <Button variant="outline" size="sm" className="text-blue-600" onClick={() => { setSelectedBill(null); startEditing(selectedBill); }}><Edit2 className="w-4 h-4 mr-1" />Edit</Button>
-                <Button variant="outline" size="sm" className="text-destructive" onClick={() => { setSelectedBill(null); setDeletingBill(selectedBill); }}><Trash2 className="w-4 h-4 mr-1" />Delete</Button>
-              </div>
+          
+
+           {selectedBill && (
+  <div className="space-y-4">
+    <div ref={printRef}>
+      <div style={{ textAlign: "center", marginBottom: 16, borderBottom: "2px solid #c8a45a", paddingBottom: 10 }}>
+        <h1 style={{ fontSize: 18, margin: 0, color: "#c8a45a" }}>
+          {selectedBill.doc_type === "estimate" ? "ESTIMATE" : "INVOICE"}
+        </h1>
+        <p style={{ fontSize: 12 }}>{selectedBill.invoice_number}</p>
+      </div>
+
+      <div className="space-y-1 text-sm">
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Customer</span>
+          <span>{selectedBill.customer_name || "Walk-in"}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Date</span>
+          <span>{selectedBill.created_at ? format(new Date(selectedBill.created_at), "dd MMM yyyy, hh:mm a") : "—"}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Payment</span>
+          <span>{selectedBill.payment_method || "N/A"}</span>
+        </div>
+        {selectedBill.gold_rate && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Gold Rate</span>
+            <span>₹{selectedBill.gold_rate}/g</span>
+          </div>
+        )}
+        {selectedBill.payment_status && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Payment Status</span>
+            <Badge variant={selectedBill.payment_status === 'paid' ? 'default' : 'secondary'}>
+              {selectedBill.payment_status}
+            </Badge>
+          </div>
+        )}
+      </div>
+
+      {/* Items Table */}
+      <table style={{ width: "100%", borderCollapse: "collapse", margin: "12px 0" }}>
+        <thead>
+          <tr style={{ borderBottom: "2px solid #ddd" }}>
+            <th style={{ textAlign: "left", padding: "6px 4px" }}>Item</th>
+            <th style={{ textAlign: "center", padding: "6px 4px" }}>Qty</th>
+            <th style={{ textAlign: "right", padding: "6px 4px" }}>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(Array.isArray(selectedBill.items) ? selectedBill.items : []).map((item, i) => (
+            <tr key={i} style={{ borderBottom: "1px solid #eee" }}>
+              <td style={{ padding: "6px 4px" }}>{item.name}</td>
+              <td style={{ textAlign: "center", padding: "6px 4px" }}>{item.qty}</td>
+              <td style={{ textAlign: "right", padding: "6px 4px" }}>
+                ₹{((item.unit_price || item.price || 0) * (item.qty || 1)).toLocaleString()}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* Exchange Items (if any) */}
+      {selectedBill.exchange_items && selectedBill.exchange_items.length > 0 && (
+        <div className="border p-2 rounded-md bg-muted/20 my-2">
+          <p className="text-xs font-semibold mb-1">💰 Old Jewellery Exchange</p>
+          {selectedBill.exchange_items.map((ex, idx) => (
+            <div key={idx} className="text-xs flex justify-between">
+              <span>{ex.description} ({ex.weight}g, {ex.purity})</span>
+              <span className="text-destructive">-₹{ex.value.toLocaleString()}</span>
             </div>
-          )}
+          ))}
+        </div>
+      )}
+
+      {/* Totals */}
+      <div className="border-t pt-3 space-y-1">
+        <div className="flex justify-between">
+          <span>Subtotal</span>
+          <span>₹{(selectedBill.subtotal || 0).toLocaleString()}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Tax (3%)</span>
+          <span>₹{(selectedBill.tax || 0).toLocaleString()}</span>
+        </div>
+        {(selectedBill.discount || 0) > 0 && (
+          <div className="flex justify-between">
+            <span>Discount</span>
+            <span className="text-destructive">-₹{(selectedBill.discount || 0).toLocaleString()}</span>
+          </div>
+        )}
+        {selectedBill.pending_amount && selectedBill.pending_amount > 0 && (
+          <div className="flex justify-between text-amber-600">
+            <span>Pending</span>
+            <span>₹{selectedBill.pending_amount.toLocaleString()}</span>
+          </div>
+        )}
+        <div className="flex justify-between font-bold text-base pt-1 border-t">
+          <span>Total</span>
+          <span className="text-primary">₹{(selectedBill.total || 0).toLocaleString()}</span>
+        </div>
+      </div>
+    </div>
+
+    {/* Action Buttons */}
+    <div className="flex flex-wrap gap-2 pt-2 border-t">
+      <Button variant="outline" size="sm" onClick={handlePrint}>
+        <Printer className="w-4 h-4 mr-1" />Print
+      </Button>
+      <Button variant="outline" size="sm" className="text-green-600" onClick={() => handleWhatsAppShare(selectedBill)}>
+        <MessageCircle className="w-4 h-4 mr-1" />WhatsApp
+      </Button>
+      <Button variant="outline" size="sm" onClick={() => handleExport(selectedBill)}>
+        <Download className="w-4 h-4 mr-1" />Export
+      </Button>
+      <Button variant="outline" size="sm" className="text-blue-600" onClick={() => { setSelectedBill(null); startEditing(selectedBill); }}>
+        <Edit2 className="w-4 h-4 mr-1" />Edit
+      </Button>
+      <Button variant="outline" size="sm" className="text-destructive" onClick={() => { setSelectedBill(null); setDeletingBill(selectedBill); }}>
+        <Trash2 className="w-4 h-4 mr-1" />Delete
+      </Button>
+    </div>
+  </div>
+)}
         </DialogContent>
       </Dialog>
 
