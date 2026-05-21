@@ -402,7 +402,7 @@ const generateReceiptHTML = (
     </head>
     <body>
       <div class="header">
-        <h1>Rajlakshmi  VAISHNAVI JEWELLERS</h1>
+        <h1>Rajlakshmi  JEWELLERS</h1>
         <p>${today}</p>
       </div>
       <div class="details">

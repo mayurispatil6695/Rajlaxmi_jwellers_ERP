@@ -21,16 +21,18 @@ export function ExchangeModal({ open, onOpenChange, onAddItem }: ExchangeModalPr
     rate: "",
   });
 
+  // Purity factors – "None" means 100% purity (factor = 1)
   const purityFactors: Record<string, number> = {
     "24K": 1,
     "22K": 0.916,
     "18K": 0.75,
+    "None": 1,           // ← Now gives full value
   };
 
   const calculatedValue = () => {
     const weight = parseFloat(form.weight) || 0;
     const rate = parseFloat(form.rate) || 0;
-    const factor = purityFactors[form.purity] || 0.916;
+    const factor = purityFactors[form.purity] ?? 1;
     return weight * factor * rate;
   };
 
@@ -90,6 +92,7 @@ export function ExchangeModal({ open, onOpenChange, onAddItem }: ExchangeModalPr
                   <SelectItem value="24K">24K (99.9%)</SelectItem>
                   <SelectItem value="22K">22K (91.6%)</SelectItem>
                   <SelectItem value="18K">18K (75%)</SelectItem>
+                  <SelectItem value="None">None (100%)</SelectItem>   {/* Now gives full rate */}
                 </SelectContent>
               </Select>
             </div>

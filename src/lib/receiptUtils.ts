@@ -50,7 +50,7 @@ export const generateReceiptHTML = (saleData: ReceiptData, docTitle: string) => 
     </style>
     </head>
     <body>
-      <div class="header"><h1>Rajlakshmi  VAISHNAVI JEWELLERS</h1><p>${today}</p></div>
+      <div class="header"><h1>Rajlakshmi  JEWELLERS</h1><p>${today}</p></div>
       <div class="details">
         <span><strong>${title}:</strong> ${saleData.invoiceNumber}</span>
         <span><strong>Gold Rate:</strong> ${goldRateDisplay}</span>
