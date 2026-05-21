@@ -44,6 +44,16 @@ async function getFirebaseIdToken(): Promise<string> {
   return cachedToken!;
 }
 
+// Helper to map collection paths to shared locations for employees
+function getFirestorePath(originalPath: string): string {
+  // For products, use the shared root node
+  if (originalPath === "products") {
+    return "shared_products";
+  }
+  // All other collections stay as they are
+  return originalPath;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -61,12 +71,13 @@ serve(async (req) => {
     }
 
     const authParam = `auth=${idToken}`;
+    const actualPath = getFirestorePath(path);
 
     // READ
     if (!action || action === "getAll") {
       const url = id
-        ? `${FIREBASE_DB_URL}/${path}/${id}.json?${authParam}`
-        : `${FIREBASE_DB_URL}/${path}.json?${authParam}`;
+        ? `${FIREBASE_DB_URL}/${actualPath}/${id}.json?${authParam}`
+        : `${FIREBASE_DB_URL}/${actualPath}.json?${authParam}`;
       const res = await fetch(url);
       const raw = await res.json();
 
@@ -102,7 +113,7 @@ serve(async (req) => {
 
     // ADD
     if (action === "add") {
-      const res = await fetch(`${FIREBASE_DB_URL}/${path}.json?${authParam}`, {
+      const res = await fetch(`${FIREBASE_DB_URL}/${actualPath}.json?${authParam}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -125,7 +136,7 @@ serve(async (req) => {
 
     // UPDATE
     if (action === "update" && id) {
-      const res = await fetch(`${FIREBASE_DB_URL}/${path}/${id}.json?${authParam}`, {
+      const res = await fetch(`${FIREBASE_DB_URL}/${actualPath}/${id}.json?${authParam}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

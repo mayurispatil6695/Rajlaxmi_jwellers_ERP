@@ -57,6 +57,20 @@ interface Employee {
   updated_at: string;
 }
 
+// Extended type for internal use (includes password hash from Firebase)
+interface EmployeeWithHash extends Employee {
+  password_hash?: string;
+}
+
+interface EmployeeFormData {
+  employee_id: string;
+  name: string;
+  email: string;
+  phone: string;
+  department: string;
+  password: string;
+}
+
 export function EmployeeManagement() {
   const { getAll, addItem, updateItem, deleteItem } = useUserData();
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -70,7 +84,7 @@ export function EmployeeManagement() {
   const [showPassword, setShowPassword] = useState(false);
   
   // Form state
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<EmployeeFormData>({
     employee_id: "",
     name: "",
     email: "",
@@ -88,9 +102,10 @@ export function EmployeeManagement() {
       setLoading(true);
       const data = await getAll<Employee>('employees');
       setEmployees(data);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error fetching employees:", error);
-      toast.error("Failed to fetch employees");
+      const errorMessage = error instanceof Error ? error.message : "Failed to fetch employees";
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -147,9 +162,10 @@ export function EmployeeManagement() {
       setCreateDialogOpen(false);
       resetForm();
       fetchEmployees();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error creating employee:", error);
-      toast.error(error.message || "Failed to create employee");
+      const errorMessage = error instanceof Error ? error.message : "Failed to create employee";
+      toast.error(errorMessage);
     } finally {
       setSaving(false);
     }
@@ -168,7 +184,8 @@ export function EmployeeManagement() {
 
     try {
       setSaving(true);
-      const updateData: any = {
+      // Build update data for Firebase
+      const updateData: Partial<EmployeeWithHash> & { id: string } = {
         id: selectedEmployee.id,
         name: formData.name,
         email: formData.email || null,
@@ -180,7 +197,11 @@ export function EmployeeManagement() {
         updateData.password_hash = formData.password;
       }
 
-      await updateItem('employees', selectedEmployee!.id, updateData);
+      await updateItem('employees', selectedEmployee.id, updateData);
+
+      // Sync to backend (get current password hash from existing employee if not changed)
+      const currentEmployee = employees.find(e => e.id === selectedEmployee.id) as EmployeeWithHash | undefined;
+      const passwordHash = formData.password || (currentEmployee?.password_hash || '');
 
       await supabase.functions.invoke('manage-employees', {
         body: {
@@ -190,7 +211,7 @@ export function EmployeeManagement() {
           email: formData.email || null,
           phone: formData.phone || null,
           department: formData.department || null,
-          password_hash: formData.password || (selectedEmployee as any).password_hash || '',
+          password_hash: passwordHash,
           is_active: true,
         },
       });
@@ -200,9 +221,10 @@ export function EmployeeManagement() {
       resetForm();
       setSelectedEmployee(null);
       fetchEmployees();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error updating employee:", error);
-      toast.error(error.message || "Failed to update employee");
+      const errorMessage = error instanceof Error ? error.message : "Failed to update employee";
+      toast.error(errorMessage);
     } finally {
       setSaving(false);
     }
@@ -212,6 +234,8 @@ export function EmployeeManagement() {
     try {
       await updateItem('employees', employee.id, { is_active: !employee.is_active });
 
+      const currentEmployee = employees.find(e => e.id === employee.id) as EmployeeWithHash | undefined;
+
       await supabase.functions.invoke('manage-employees', {
         body: {
           action: 'sync',
@@ -220,16 +244,17 @@ export function EmployeeManagement() {
           email: employee.email || null,
           phone: employee.phone || null,
           department: employee.department || null,
-          password_hash: (employee as any).password_hash || '',
+          password_hash: currentEmployee?.password_hash || '',
           is_active: !employee.is_active,
         },
       });
 
       toast.success(`Employee ${employee.is_active ? 'deactivated' : 'activated'} successfully`);
       fetchEmployees();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error toggling employee status:", error);
-      toast.error(error.message || "Failed to update employee status");
+      const errorMessage = error instanceof Error ? error.message : "Failed to update employee status";
+      toast.error(errorMessage);
     }
   };
 
@@ -247,9 +272,10 @@ export function EmployeeManagement() {
       setDeleteDialogOpen(false);
       setSelectedEmployee(null);
       fetchEmployees();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error deleting employee:", error);
-      toast.error(error.message || "Failed to delete employee");
+      const errorMessage = error instanceof Error ? error.message : "Failed to delete employee";
+      toast.error(errorMessage);
     } finally {
       setSaving(false);
     }

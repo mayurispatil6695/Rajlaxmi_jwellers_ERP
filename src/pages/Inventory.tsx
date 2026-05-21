@@ -73,9 +73,9 @@ const Inventory = () => {
   const { createNotification } = useNotifications();
 
   const { data: products = [], isLoading } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => getAll<Product>("products"),
-  });
+  queryKey: ["products"],
+  queryFn: () => getAll<Product>("products"),  // 👈 shared = true
+});
 
   // Export to Excel
   const exportToExcel = () => {
