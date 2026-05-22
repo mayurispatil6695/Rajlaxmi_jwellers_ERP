@@ -4,13 +4,25 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Html5QrcodeScanner } from "html5-qrcode";
 import { Camera } from "lucide-react";
+import { ref, push } from "firebase/database";
+import { db } from "@/lib/firebase";
 
 interface CameraScannerProps {
-  onScan: (decodedText: string) => void;
+  onScan?: (decodedText: string) => void; // keep optional for backward compatibility
 }
 
 export function CameraScanner({ onScan }: CameraScannerProps) {
   const [open, setOpen] = useState(false);
+
+  const writeScan = async (barcode: string) => {
+    // Write to Firebase to sync across devices
+    await push(ref(db, 'pending_scans'), {
+      barcode,
+      timestamp: Date.now(),
+    });
+    // Also call the local callback if provided (for the phone's own UI)
+    if (onScan) onScan(barcode);
+  };
 
   const startScan = () => {
     setOpen(true);
@@ -23,7 +35,7 @@ export function CameraScanner({ onScan }: CameraScannerProps) {
       scanner.render(
         (decodedText) => {
           scanner.clear();
-          onScan(decodedText);
+          writeScan(decodedText);
           setOpen(false);
         },
         (error) => {

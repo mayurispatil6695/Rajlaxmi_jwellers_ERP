@@ -13,7 +13,8 @@ import { GoldRateCalculator, type ProductForCalc, type CalcResult } from "@/comp
 import { toast } from "sonner";
 import { employeeGetAll, employeeAddItem, employeeUpdateItem } from "@/lib/employeeFirebaseProxy";
 import { useEmployeeAuth } from "@/contexts/EmployeeAuthContext";
-
+import { ref, onChildAdded, remove } from "firebase/database";
+import { db } from "@/lib/firebase";
 interface Product {
   id: string;
   sku: string;
@@ -60,7 +61,33 @@ const EmployeePOS = () => {
       return all.filter((p) => p.stock > 0).sort((a, b) => a.name.localeCompare(b.name));
     },
   });
-
+// Inside POS component (add after the products query)
+useEffect(() => {
+  const scansRef = ref(db, 'pending_scans');
+  const unsubscribe = onChildAdded(scansRef, async (snapshot) => {
+    const scan = snapshot.val();
+    if (scan && scan.barcode) {
+      // Find product
+      const product = products.find(
+        (p) => p.barcode === scan.barcode || p.sku === scan.barcode
+      );
+      if (product) {
+        if (isGoldProduct(product)) {
+          sendToCalculator(product);
+          toast.success(`📱 Scanned: ${product.name} → Calculator`);
+        } else {
+          addToCart(product);
+          toast.success(`📱 Scanned: ${product.name} → Added to Bill`);
+        }
+      } else {
+        toast.error(`Product not found: ${scan.barcode}`);
+      }
+      // Remove the processed scan
+      await remove(ref(db, `pending_scans/${snapshot.key}`));
+    }
+  });
+  return () => unsubscribe();
+}, [products]); // re-run when products list changes
   // ----- Helper functions (defined before use) -----
   const addToCart = (product: Product) => {
     const existing = cart.find((item) => item.id === product.id);

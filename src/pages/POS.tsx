@@ -27,6 +27,10 @@ import { ExchangeModal } from "@/components/pos/ExchangeModal";
 import qz from 'qz-tray';
 import ReceiptPrinterEncoder from '@point-of-sale/receipt-printer-encoder';
 import { CameraScanner } from "@/components/pos/CameraScanner";
+import { ref, onChildAdded, remove } from "firebase/database";
+import { db } from "@/lib/firebase";
+
+
 interface Product {
   id: string;
   sku: string;
@@ -137,6 +141,33 @@ const POS = () => {
     queryFn: () => getAll<CustomerRecord>("customers"),
   });
 
+  // Inside POS component (add after the products query)
+useEffect(() => {
+  const scansRef = ref(db, 'pending_scans');
+  const unsubscribe = onChildAdded(scansRef, async (snapshot) => {
+    const scan = snapshot.val();
+    if (scan && scan.barcode) {
+      // Find product
+      const product = products.find(
+        (p) => p.barcode === scan.barcode || p.sku === scan.barcode
+      );
+      if (product) {
+        if (isGoldProduct(product)) {
+          sendToCalculator(product);
+          toast.success(`📱 Scanned: ${product.name} → Calculator`);
+        } else {
+          addToCart(product);
+          toast.success(`📱 Scanned: ${product.name} → Added to Bill`);
+        }
+      } else {
+        toast.error(`Product not found: ${scan.barcode}`);
+      }
+      // Remove the processed scan
+      await remove(ref(db, `pending_scans/${snapshot.key}`));
+    }
+  });
+  return () => unsubscribe();
+}, [products]); // re-run when products list changes
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ctrl + N → New Sale (reset cart, clear customer)
