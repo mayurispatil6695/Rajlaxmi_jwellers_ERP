@@ -15,6 +15,8 @@ import { employeeGetAll, employeeAddItem, employeeUpdateItem } from "@/lib/emplo
 import { useEmployeeAuth } from "@/contexts/EmployeeAuthContext";
 import { ref, onChildAdded, remove } from "firebase/database";
 import { db } from "@/lib/firebase";
+import { CameraScanner } from "@/components/pos/CameraScanner";
+
 interface Product {
   id: string;
   sku: string;
@@ -61,34 +63,34 @@ const EmployeePOS = () => {
       return all.filter((p) => p.stock > 0).sort((a, b) => a.name.localeCompare(b.name));
     },
   });
-// Inside POS component (add after the products query)
-useEffect(() => {
-  const scansRef = ref(db, 'pending_scans');
-  const unsubscribe = onChildAdded(scansRef, async (snapshot) => {
-    const scan = snapshot.val();
-    if (scan && scan.barcode) {
-      // Find product
-      const product = products.find(
-        (p) => p.barcode === scan.barcode || p.sku === scan.barcode
-      );
-      if (product) {
-        if (isGoldProduct(product)) {
-          sendToCalculator(product);
-          toast.success(`📱 Scanned: ${product.name} → Calculator`);
+
+  // Cross‑device sync: listen for scans from Firebase
+  useEffect(() => {
+    const scansRef = ref(db, 'pending_scans');
+    const unsubscribe = onChildAdded(scansRef, async (snapshot) => {
+      const scan = snapshot.val();
+      if (scan && scan.barcode) {
+        const product = products.find(
+          (p) => p.barcode === scan.barcode || p.sku === scan.barcode
+        );
+        if (product) {
+          if (isGoldProduct(product)) {
+            sendToCalculator(product);
+            toast.success(`📱 Scanned: ${product.name} → Calculator`);
+          } else {
+            addToCart(product);
+            toast.success(`📱 Scanned: ${product.name} → Added to Bill`);
+          }
         } else {
-          addToCart(product);
-          toast.success(`📱 Scanned: ${product.name} → Added to Bill`);
+          toast.error(`Product not found: ${scan.barcode}`);
         }
-      } else {
-        toast.error(`Product not found: ${scan.barcode}`);
+        await remove(ref(db, `pending_scans/${snapshot.key}`));
       }
-      // Remove the processed scan
-      await remove(ref(db, `pending_scans/${snapshot.key}`));
-    }
-  });
-  return () => unsubscribe();
-}, [products]); // re-run when products list changes
-  // ----- Helper functions (defined before use) -----
+    });
+    return () => unsubscribe();
+  }, [products]);
+
+  // ----- Helper functions -----
   const addToCart = (product: Product) => {
     const existing = cart.find((item) => item.id === product.id);
     if (existing) {
@@ -169,7 +171,7 @@ useEffect(() => {
     toast.success(`₹${result.calculatedPrice.toLocaleString()} added to bill!`);
   }, [cart, products]);
 
-  // Barcode scanner detection
+  // Barcode scanner detection (hardware / keyboard)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const active = document.activeElement;
@@ -191,7 +193,6 @@ useEffect(() => {
         scanTimerRef.current = setTimeout(() => { scanBufferRef.current = ""; }, 100);
       }
     };
-
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [products, cart]);
@@ -347,48 +348,8 @@ useEffect(() => {
                     autoFocus
                   />
                 </div>
-                <div className="mt-4 max-h-48 overflow-y-auto space-y-2">
-                  {isLoading ? (
-                    <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
-                  ) : filteredProducts.length === 0 ? (
-                    <p className="text-center text-muted-foreground py-4 text-sm">{products.length === 0 ? "No products in inventory" : "No products found"}</p>
-                  ) : (
-                    filteredProducts.slice(0, 8).map((product) => {
-                      const gold = isGoldProduct(product);
-                      return (
-                        <div
-                          key={product.id}
-                          className="flex items-center justify-between p-2 rounded-lg bg-muted/30 border border-border/50 hover:bg-muted/50 cursor-pointer"
-                          onClick={() => gold ? sendToCalculator(product) : addToCart(product)}
-                        >
-                          <div className="flex items-center gap-2">
-                            {gold && <Gem className="w-3.5 h-3.5 text-primary shrink-0" />}
-                            <div>
-                              <p className="font-medium text-sm flex items-center gap-1.5">
-                                {product.name}
-                                {gold && <Badge variant="outline" className="text-[9px] px-1 py-0 border-primary/30 text-primary">{product.metal_type}</Badge>}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                <span className="font-mono">{product.barcode || product.sku}</span> • {product.weight}g • Stock: {product.stock}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="text-right flex items-center gap-2">
-                            <p className="font-semibold text-primary text-sm">₹{product.unit_price.toLocaleString()}</p>
-                            {gold ? (
-                              <Button variant="gold" size="sm" className="h-6 text-[10px] px-2">
-                                <Calculator className="w-3 h-3 mr-1" />Calculate
-                              </Button>
-                            ) : (
-                              <Button variant="ghost" size="sm" className="h-6 text-xs">
-                                <Plus className="w-3 h-3 mr-1" />Add
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
+                <div className="mt-2">
+                  <CameraScanner onScan={handleBarcodeScan} />
                 </div>
               </CardContent>
             </Card>
