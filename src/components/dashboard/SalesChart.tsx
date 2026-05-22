@@ -1,23 +1,35 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  TooltipProps,
 } from "recharts";
 import { useMemo } from "react";
 import { Activity } from "lucide-react";
 
+// More specific Sale type – `items` not used; can be omitted or kept as unknown
 interface Sale {
   id: string;
   total: number;
   created_at: string;
-  items: any;
+  // If you don't use items, omit it or use `unknown`
+  items?: unknown;
 }
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+// Type for the tooltip data
+type TooltipPayload = {
+  dataKey: string;
+  color: string;
+  value: number;
+  name?: string;
+  payload?: unknown;
+};
+
+const CustomTooltip = ({ active, payload, label }: TooltipProps<number, string>) => {
   if (active && payload && payload.length) {
     return (
       <div className="bg-card border border-border rounded-lg p-3 shadow-elevated">
         <p className="font-medium mb-2">{label}</p>
-        {payload.map((entry: any, index: number) => (
+        {payload.map((entry: TooltipPayload, index: number) => (
           <div key={index} className="flex items-center gap-2 text-sm">
             <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }} />
             <span className="text-muted-foreground capitalize">{entry.dataKey}:</span>

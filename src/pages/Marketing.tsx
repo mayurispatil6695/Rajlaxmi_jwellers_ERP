@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { useUserData } from "@/hooks/useUserData";
 import emailjs from "@emailjs/browser";
 
+// --- Types ---
 interface Campaign {
   id: string;
   name: string;
@@ -34,13 +35,26 @@ interface Customer {
   date_of_birth: string | null;
 }
 
+interface CampaignFormData {
+  name: string;
+  type: string;
+  status: string;
+}
+
+interface SegmentCriteria {
+  minPurchase: string;
+  city: string;
+  hasEmail: boolean;
+  hasPhone: boolean;
+}
+
 const Marketing = () => {
   const { getAll, addItem, updateItem } = useUserData();
   const queryClient = useQueryClient();
 
   // Campaign Dialog
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [formData, setFormData] = useState({ name: "", type: "Email", status: "Draft" });
+  const [formData, setFormData] = useState<CampaignFormData>({ name: "", type: "Email", status: "Draft" });
 
   // Quick Action Dialogs
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
@@ -58,7 +72,7 @@ const Marketing = () => {
   const [sendingPush, setSendingPush] = useState(false);
 
   const [segmentDialogOpen, setSegmentDialogOpen] = useState(false);
-  const [segmentCriteria, setSegmentCriteria] = useState({ minPurchase: "", city: "", hasEmail: false, hasPhone: false });
+  const [segmentCriteria, setSegmentCriteria] = useState<SegmentCriteria>({ minPurchase: "", city: "", hasEmail: false, hasPhone: false });
   const [segmentedCustomers, setSegmentedCustomers] = useState<Customer[]>([]);
   const [segmentLoading, setSegmentLoading] = useState(false);
 
@@ -74,7 +88,7 @@ const Marketing = () => {
   });
 
   const addCampaignMutation = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (data: CampaignFormData) => {
       return addItem("campaigns", { ...data, sent_count: 0, opened_count: 0, converted_count: 0 });
     },
     onSuccess: () => {
@@ -83,7 +97,7 @@ const Marketing = () => {
       setIsDialogOpen(false);
       setFormData({ name: "", type: "Email", status: "Draft" });
     },
-    onError: (error: any) => toast.error("Failed to create campaign: " + error.message),
+    onError: (error: Error) => toast.error("Failed to create campaign: " + error.message),
   });
 
   const activateCampaignMutation = useMutation({
@@ -92,13 +106,18 @@ const Marketing = () => {
       const sentCount = Math.floor(Math.random() * 2000) + 500;
       const openedCount = Math.floor(sentCount * 0.65);
       const convertedCount = Math.floor(openedCount * 0.1);
-      await updateItem("campaigns", campaignId, { status: "Active", sent_count: sentCount, opened_count: openedCount, converted_count: convertedCount });
+      await updateItem("campaigns", campaignId, {
+        status: "Active",
+        sent_count: sentCount,
+        opened_count: openedCount,
+        converted_count: convertedCount,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["campaigns"] });
       toast.success("Campaign activated!");
     },
-    onError: (error: any) => toast.error("Failed to activate campaign: " + error.message),
+    onError: (error: Error) => toast.error("Failed to activate campaign: " + error.message),
   });
 
   // EmailJS integration (requires setup – see notes below)
@@ -107,7 +126,6 @@ const Marketing = () => {
       toast.error("Please fill in both subject and content");
       return;
     }
-    // Get all customers with email
     const customersWithEmail = customers.filter(c => c.email && c.email.trim());
     if (customersWithEmail.length === 0) {
       toast.error("No customers with email found");
@@ -115,17 +133,8 @@ const Marketing = () => {
     }
     setSendingEmail(true);
     try {
-      // Initialize EmailJS if not already done
-      // You need to add your EmailJS public key in .env: VITE_EMAILJS_PUBLIC_KEY
-      if (!emailjs.init) {
-        await import('@emailjs/browser');
-      }
-      // For demo, we'll send a test email to the first customer and show a toast
-      // In production, you would loop or use a backend.
-      // For simplicity here, we'll simulate sending to all.
+      // For demo, we'll simulate sending
       toast.loading(`Sending to ${customersWithEmail.length} customers...`, { duration: 2000 });
-      // Actually send via EmailJS (you need to set up template and service ID)
-      // For now, simulate success
       setTimeout(() => {
         toast.success(`Email blast sent to ${customersWithEmail.length} customers!`);
         setEmailDialogOpen(false);
@@ -204,21 +213,60 @@ const Marketing = () => {
       <div className="mb-6 animate-fade-in pt-2 sm:pt-0">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-display font-bold"><span className="text-gradient-gold">Marketing</span> & Campaigns</h1>
-            <p className="text-muted-foreground mt-1 text-sm sm:text-base">Create campaigns, automate marketing, and track performance</p>
+            <h1 className="text-2xl sm:text-3xl font-display font-bold">
+              <span className="text-gradient-gold">Marketing</span> & Campaigns
+            </h1>
+            <p className="text-muted-foreground mt-1 text-sm sm:text-base">
+              Create campaigns, automate marketing, and track performance
+            </p>
           </div>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild><Button variant="gold" className="shrink-0 w-full sm:w-auto"><Plus className="w-4 h-4 mr-2" />New Campaign</Button></DialogTrigger>
+            <DialogTrigger asChild>
+              <Button variant="gold" className="shrink-0 w-full sm:w-auto">
+                <Plus className="w-4 h-4 mr-2" />New Campaign
+              </Button>
+            </DialogTrigger>
             <DialogContent className="max-w-md">
               <DialogHeader><DialogTitle>Create New Campaign</DialogTitle></DialogHeader>
               <form onSubmit={(e) => { e.preventDefault(); addCampaignMutation.mutate(formData); }} className="space-y-4">
-                <div className="space-y-2"><Label htmlFor="name">Campaign Name *</Label><Input id="name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="Diwali Gold Rush" required /></div>
+                <div className="space-y-2">
+                  <Label htmlFor="name">Campaign Name *</Label>
+                  <Input
+                    id="name"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    placeholder="Diwali Gold Rush"
+                    required
+                  />
+                </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2"><Label>Campaign Type</Label><Select value={formData.type} onValueChange={(v) => setFormData({ ...formData, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Email">Email</SelectItem><SelectItem value="SMS">SMS</SelectItem><SelectItem value="Push Notification">Push Notification</SelectItem><SelectItem value="Email + SMS">Email + SMS</SelectItem></SelectContent></Select></div>
-                  <div className="space-y-2"><Label>Status</Label><Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Draft">Draft</SelectItem><SelectItem value="Scheduled">Scheduled</SelectItem><SelectItem value="Active">Active</SelectItem></SelectContent></Select></div>
+                  <div className="space-y-2">
+                    <Label>Campaign Type</Label>
+                    <Select value={formData.type} onValueChange={(v) => setFormData({ ...formData, type: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Email">Email</SelectItem>
+                        <SelectItem value="SMS">SMS</SelectItem>
+                        <SelectItem value="Push Notification">Push Notification</SelectItem>
+                        <SelectItem value="Email + SMS">Email + SMS</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Status</Label>
+                    <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Draft">Draft</SelectItem>
+                        <SelectItem value="Scheduled">Scheduled</SelectItem>
+                        <SelectItem value="Active">Active</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <Button type="submit" variant="gold" className="w-full" disabled={addCampaignMutation.isPending}>
-                  {addCampaignMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}Create Campaign
+                  {addCampaignMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Create Campaign
                 </Button>
               </form>
             </DialogContent>
@@ -228,17 +276,54 @@ const Marketing = () => {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-        <Card variant="stat"><CardContent className="pt-4 sm:pt-6 px-3 sm:px-6"><div className="flex items-center gap-1 sm:gap-2"><Send className="w-3 h-3 sm:w-4 sm:h-4 text-primary shrink-0" /><p className="text-xs sm:text-sm text-muted-foreground truncate">Messages Sent</p></div><p className="text-xl sm:text-2xl font-bold">{stats.messagesSent.toLocaleString()}</p></CardContent></Card>
-        <Card variant="stat"><CardContent className="pt-4 sm:pt-6 px-3 sm:px-6"><div className="flex items-center gap-1 sm:gap-2"><Users className="w-3 h-3 sm:w-4 sm:h-4 text-green-500 shrink-0" /><p className="text-xs sm:text-sm text-muted-foreground">Open Rate</p></div><p className="text-xl sm:text-2xl font-bold text-green-500">{stats.openRate.toFixed(1)}%</p></CardContent></Card>
-        <Card variant="stat"><CardContent className="pt-4 sm:pt-6 px-3 sm:px-6"><div className="flex items-center gap-1 sm:gap-2"><TrendingUp className="w-3 h-3 sm:w-4 sm:h-4 text-primary shrink-0" /><p className="text-xs sm:text-sm text-muted-foreground truncate">Conversion</p></div><p className="text-xl sm:text-2xl font-bold text-primary">{stats.conversionRate.toFixed(1)}%</p></CardContent></Card>
-        <Card variant="stat"><CardContent className="pt-4 sm:pt-6 px-3 sm:px-6"><div className="flex items-center gap-1 sm:gap-2"><Calendar className="w-3 h-3 sm:w-4 sm:h-4 text-blue-500 shrink-0" /><p className="text-xs sm:text-sm text-muted-foreground truncate">Active</p></div><p className="text-xl sm:text-2xl font-bold">{stats.activeCampaigns}</p></CardContent></Card>
+        <Card variant="stat">
+          <CardContent className="pt-4 sm:pt-6 px-3 sm:px-6">
+            <div className="flex items-center gap-1 sm:gap-2">
+              <Send className="w-3 h-3 sm:w-4 sm:h-4 text-primary shrink-0" />
+              <p className="text-xs sm:text-sm text-muted-foreground truncate">Messages Sent</p>
+            </div>
+            <p className="text-xl sm:text-2xl font-bold">{stats.messagesSent.toLocaleString()}</p>
+          </CardContent>
+        </Card>
+        <Card variant="stat">
+          <CardContent className="pt-4 sm:pt-6 px-3 sm:px-6">
+            <div className="flex items-center gap-1 sm:gap-2">
+              <Users className="w-3 h-3 sm:w-4 sm:h-4 text-green-500 shrink-0" />
+              <p className="text-xs sm:text-sm text-muted-foreground">Open Rate</p>
+            </div>
+            <p className="text-xl sm:text-2xl font-bold text-green-500">{stats.openRate.toFixed(1)}%</p>
+          </CardContent>
+        </Card>
+        <Card variant="stat">
+          <CardContent className="pt-4 sm:pt-6 px-3 sm:px-6">
+            <div className="flex items-center gap-1 sm:gap-2">
+              <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4 text-primary shrink-0" />
+              <p className="text-xs sm:text-sm text-muted-foreground truncate">Conversion</p>
+            </div>
+            <p className="text-xl sm:text-2xl font-bold text-primary">{stats.conversionRate.toFixed(1)}%</p>
+          </CardContent>
+        </Card>
+        <Card variant="stat">
+          <CardContent className="pt-4 sm:pt-6 px-3 sm:px-6">
+            <div className="flex items-center gap-1 sm:gap-2">
+              <Calendar className="w-3 h-3 sm:w-4 sm:h-4 text-blue-500 shrink-0" />
+              <p className="text-xs sm:text-sm text-muted-foreground truncate">Active</p>
+            </div>
+            <p className="text-xl sm:text-2xl font-bold">{stats.activeCampaigns}</p>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-6">
         {/* Campaigns List */}
         <div className="xl:col-span-2">
           <Card variant="elevated">
-            <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base sm:text-lg"><Megaphone className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />All Campaigns</CardTitle></CardHeader>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                <Megaphone className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
+                All Campaigns
+              </CardTitle>
+            </CardHeader>
             <CardContent>
               {isLoading ? (
                 <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
@@ -247,7 +332,10 @@ const Marketing = () => {
               ) : (
                 <div className="space-y-3">
                   {campaigns.map((campaign) => (
-                    <div key={campaign.id} className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-lg bg-muted/30 border border-border/50 hover:bg-muted/50 transition-colors cursor-pointer">
+                    <div
+                      key={campaign.id}
+                      className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-lg bg-muted/30 border border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
+                    >
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-gold/20 flex items-center justify-center shrink-0">
                           {campaign.type?.includes("Email") ? <Mail className="w-4 h-4 sm:w-5 sm:h-5 text-primary" /> : campaign.type?.includes("SMS") ? <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5 text-primary" /> : <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />}
@@ -263,9 +351,21 @@ const Marketing = () => {
                           <p className="text-muted-foreground">{campaign.converted_count || 0} conversions</p>
                         </div>
                         {campaign.status === "Draft" ? (
-                          <Button variant="outline" size="sm" onClick={() => activateCampaignMutation.mutate(campaign.id)} disabled={activateCampaignMutation.isPending}>Activate</Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => activateCampaignMutation.mutate(campaign.id)}
+                            disabled={activateCampaignMutation.isPending}
+                          >
+                            Activate
+                          </Button>
                         ) : (
-                          <Badge variant={campaign.status === "Active" ? "default" : campaign.status === "Scheduled" ? "secondary" : "outline"} className="text-xs whitespace-nowrap">{campaign.status}</Badge>
+                          <Badge
+                            variant={campaign.status === "Active" ? "default" : campaign.status === "Scheduled" ? "secondary" : "outline"}
+                            className="text-xs whitespace-nowrap"
+                          >
+                            {campaign.status}
+                          </Badge>
                         )}
                       </div>
                     </div>
@@ -278,7 +378,9 @@ const Marketing = () => {
 
         {/* Quick Actions */}
         <Card variant="elevated">
-          <CardHeader className="pb-3 sm:pb-4"><CardTitle className="text-base sm:text-lg">Quick Actions</CardTitle></CardHeader>
+          <CardHeader className="pb-3 sm:pb-4">
+            <CardTitle className="text-base sm:text-lg">Quick Actions</CardTitle>
+          </CardHeader>
           <CardContent className="space-y-2 sm:space-y-3">
             <Button variant="outline" className="w-full justify-start gap-2 h-10 sm:h-11 text-sm" onClick={() => setEmailDialogOpen(true)}>
               <Mail className="w-4 h-4 shrink-0" /><span className="truncate">Send Email Blast</span>
@@ -303,7 +405,10 @@ const Marketing = () => {
           <div className="space-y-4">
             <div className="space-y-2"><Label>Subject</Label><Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} placeholder="Special Offer – Diwali Sale" /></div>
             <div className="space-y-2"><Label>Message Body</Label><Textarea rows={6} value={emailContent} onChange={(e) => setEmailContent(e.target.value)} placeholder="Dear customer, ..." /></div>
-            <Button onClick={sendEmailBlast} disabled={sendingEmail} className="w-full">{sendingEmail ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Mail className="w-4 h-4 mr-2" />}Send to {customers.filter(c => c.email).length} customers</Button>
+            <Button onClick={sendEmailBlast} disabled={sendingEmail} className="w-full">
+              {sendingEmail ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Mail className="w-4 h-4 mr-2" />}
+              Send to {customers.filter(c => c.email).length} customers
+            </Button>
             <p className="text-xs text-muted-foreground text-center">Note: Real email sending requires EmailJS configuration. This demo simulates sending.</p>
           </div>
         </DialogContent>
@@ -315,7 +420,10 @@ const Marketing = () => {
           <DialogHeader><DialogTitle>Send SMS Campaign</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2"><Label>SMS Message (max 160 chars)</Label><Textarea rows={3} maxLength={160} value={smsMessage} onChange={(e) => setSmsMessage(e.target.value)} placeholder="Your promotional SMS..." /></div>
-            <Button onClick={sendSmsCampaign} disabled={sendingSms} className="w-full">{sendingSms ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <MessageSquare className="w-4 h-4 mr-2" />}Send to {customers.filter(c => c.phone).length} customers</Button>
+            <Button onClick={sendSmsCampaign} disabled={sendingSms} className="w-full">
+              {sendingSms ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <MessageSquare className="w-4 h-4 mr-2" />}
+              Send to {customers.filter(c => c.phone).length} customers
+            </Button>
             <p className="text-xs text-muted-foreground text-center">Note: Requires Twilio integration for production.</p>
           </div>
         </DialogContent>
@@ -328,7 +436,10 @@ const Marketing = () => {
           <div className="space-y-4">
             <div className="space-y-2"><Label>Title</Label><Input value={pushTitle} onChange={(e) => setPushTitle(e.target.value)} placeholder="Special Offer" /></div>
             <div className="space-y-2"><Label>Body</Label><Textarea rows={3} value={pushBody} onChange={(e) => setPushBody(e.target.value)} placeholder="Get 10% off on gold..." /></div>
-            <Button onClick={sendPushNotification} disabled={sendingPush} className="w-full">{sendingPush ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Bell className="w-4 h-4 mr-2" />}Send to all customers</Button>
+            <Button onClick={sendPushNotification} disabled={sendingPush} className="w-full">
+              {sendingPush ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Bell className="w-4 h-4 mr-2" />}
+              Send to all customers
+            </Button>
             <p className="text-xs text-muted-foreground text-center">Note: Requires Firebase Cloud Messaging setup for real push notifications.</p>
           </div>
         </DialogContent>
@@ -344,10 +455,17 @@ const Marketing = () => {
               <div className="space-y-2"><Label>City</Label><Input placeholder="e.g., Mumbai" value={segmentCriteria.city} onChange={(e) => setSegmentCriteria({ ...segmentCriteria, city: e.target.value })} /></div>
             </div>
             <div className="flex gap-4">
-              <label className="flex items-center gap-2"><input type="checkbox" checked={segmentCriteria.hasEmail} onChange={(e) => setSegmentCriteria({ ...segmentCriteria, hasEmail: e.target.checked })} /> Has Email</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={segmentCriteria.hasPhone} onChange={(e) => setSegmentCriteria({ ...segmentCriteria, hasPhone: e.target.checked })} /> Has Phone</label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={segmentCriteria.hasEmail} onChange={(e) => setSegmentCriteria({ ...segmentCriteria, hasEmail: e.target.checked })} /> Has Email
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={segmentCriteria.hasPhone} onChange={(e) => setSegmentCriteria({ ...segmentCriteria, hasPhone: e.target.checked })} /> Has Phone
+              </label>
             </div>
-            <Button variant="outline" onClick={handleSegment} className="w-full"><Filter className="w-4 h-4 mr-2" />Apply Filters</Button>
+            <Button variant="outline" onClick={handleSegment} className="w-full" disabled={segmentLoading}>
+              {segmentLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Filter className="w-4 h-4 mr-2" />}
+              Apply Filters
+            </Button>
             {segmentedCustomers.length > 0 && (
               <div className="max-h-60 overflow-y-auto border rounded-md p-2">
                 <p className="text-sm font-semibold mb-2">{segmentedCustomers.length} customers found</p>
@@ -355,7 +473,9 @@ const Marketing = () => {
                   {segmentedCustomers.map(c => (
                     <div key={c.id} className="text-sm p-1 border-b">
                       <p className="font-medium">{c.name}</p>
-                      <p className="text-xs text-muted-foreground">{c.phone} {c.email ? `• ${c.email}` : ''} • ₹{(c.total_purchases || 0).toLocaleString()}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {c.phone} {c.email ? `• ${c.email}` : ''} • ₹{(c.total_purchases || 0).toLocaleString()}
+                      </p>
                     </div>
                   ))}
                 </div>

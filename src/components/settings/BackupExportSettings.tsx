@@ -98,10 +98,10 @@ function toCsvValue(value: unknown): string {
 }
 
 // ---------- Helper: Convert object to CSV rows ----------
-function objectToCsvRows(obj: Record<string, unknown>): string[] {
+function objectToCsvRows<T extends Record<string, unknown>>(obj: T): { headers: string[]; values: string[] } {
   const headers = Object.keys(obj);
   const values = headers.map(h => `"${toCsvValue(obj[h])}"`);
-  return [headers.join(','), values.join(',')];
+  return { headers, values };
 }
 
 // ---------- Helper: Generate PDF with autoTable ----------
@@ -114,54 +114,39 @@ function generatePdf(data: ExportData): void {
 
   let y = 35;
 
-  const addSection = (title: string, rows: Record<string, unknown>[] | undefined, columns: string[]) => {
+  const addSection = <T extends Record<string, unknown>>(title: string, rows: T[] | undefined, columns: (keyof T)[]) => {
     if (!rows || rows.length === 0) return;
     doc.setFontSize(12);
     doc.text(title, 14, y);
     y += 6;
     autoTable(doc, {
       startY: y,
-      head: [columns],
-      body: rows.map(row => columns.map(col => toCsvValue(row[col]))),
+      head: [columns.map(String)],
+      body: rows.map(row => columns.map(col => toCsvValue(row[col as string]))),
       theme: 'striped',
       margin: { left: 14 },
     });
-    y = (doc as any).lastAutoTable.finalY + 8;
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
   };
 
-  if (data.profile) {
-    addSection('Profile', [data.profile], ['id', 'email', 'display_name', 'created_at']);
-  }
-  if (data.preferences) {
-    addSection('Preferences', [data.preferences], ['auto_backup', 'backup_frequency', 'last_backup_at']);
-  }
-  if (data.sales && data.sales.length > 0) {
-    addSection('Sales', data.sales, ['invoice_number', 'customer_name', 'total', 'payment_method', 'created_at']);
-  }
-  if (data.products && data.products.length > 0) {
-    addSection('Products', data.products, ['name', 'sku', 'stock', 'unit_price', 'metal_type']);
-  }
-  if (data.customers && data.customers.length > 0) {
-    addSection('Customers', data.customers, ['name', 'phone', 'email', 'total_purchases']);
-  }
-  if (data.employees && data.employees.length > 0) {
-    addSection('Employees', data.employees, ['employee_id', 'name', 'is_active']);
-  }
-  if (data.investments && data.investments.length > 0) {
-    addSection('Investments', data.investments, ['invested_amount', 'current_value', 'status']);
-  }
-  if (data.allProfiles && data.allProfiles.length > 0) {
-    addSection('All User Profiles (Admin)', data.allProfiles, ['email', 'display_name', 'created_at']);
-  }
+  // Safe cast: first to unknown, then to Record<string, unknown>[]
+  if (data.profile) addSection('Profile', [data.profile] as unknown as Record<string, unknown>[], ['id', 'email', 'display_name', 'created_at']);
+  if (data.preferences) addSection('Preferences', [data.preferences] as unknown as Record<string, unknown>[], ['auto_backup', 'backup_frequency', 'last_backup_at']);
+  if (data.sales) addSection('Sales', data.sales as unknown as Record<string, unknown>[], ['invoice_number', 'customer_name', 'total', 'payment_method', 'created_at']);
+  if (data.products) addSection('Products', data.products as unknown as Record<string, unknown>[], ['name', 'sku', 'stock', 'unit_price', 'metal_type']);
+  if (data.customers) addSection('Customers', data.customers as unknown as Record<string, unknown>[], ['name', 'phone', 'email', 'total_purchases']);
+  if (data.employees) addSection('Employees', data.employees as unknown as Record<string, unknown>[], ['employee_id', 'name', 'is_active']);
+  if (data.investments) addSection('Investments', data.investments as unknown as Record<string, unknown>[], ['invested_amount', 'current_value', 'status']);
+  if (data.allProfiles) addSection('All User Profiles (Admin)', data.allProfiles as unknown as Record<string, unknown>[], ['email', 'display_name', 'created_at']);
 
-  doc.save(`Rajlakshmi -jewellers-export-${Date.now()}.pdf`);
+  doc.save(`Rajlakshmi-jewellers-export-${Date.now()}.pdf`);
 }
 
 // ---------- Helper: Convert export data to CSV string ----------
 function exportToCsv(data: ExportData): string {
   const sections: string[] = [];
 
-  const addSection = (title: string, rows: Record<string, unknown>[] | undefined) => {
+  const addSection = <T extends Record<string, unknown>>(title: string, rows: T[] | undefined) => {
     if (!rows || rows.length === 0) return;
     sections.push(`\n--- ${title} ---\n`);
     rows.forEach(row => {
@@ -173,14 +158,15 @@ function exportToCsv(data: ExportData): string {
     });
   };
 
-  if (data.profile) addSection('Profile', [data.profile]);
-  if (data.preferences) addSection('Preferences', [data.preferences]);
-  if (data.sales) addSection('Sales', data.sales);
-  if (data.products) addSection('Products', data.products);
-  if (data.customers) addSection('Customers', data.customers);
-  if (data.employees) addSection('Employees', data.employees);
-  if (data.investments) addSection('Investments', data.investments);
-  if (data.allProfiles) addSection('All Profiles (Admin)', data.allProfiles);
+  // Safe cast: first to unknown, then to Record<string, unknown>[]
+  if (data.profile) addSection('Profile', [data.profile] as unknown as Record<string, unknown>[]);
+  if (data.preferences) addSection('Preferences', [data.preferences] as unknown as Record<string, unknown>[]);
+  if (data.sales) addSection('Sales', data.sales as unknown as Record<string, unknown>[]);
+  if (data.products) addSection('Products', data.products as unknown as Record<string, unknown>[]);
+  if (data.customers) addSection('Customers', data.customers as unknown as Record<string, unknown>[]);
+  if (data.employees) addSection('Employees', data.employees as unknown as Record<string, unknown>[]);
+  if (data.investments) addSection('Investments', data.investments as unknown as Record<string, unknown>[]);
+  if (data.allProfiles) addSection('All Profiles (Admin)', data.allProfiles as unknown as Record<string, unknown>[]);
 
   return sections.join('');
 }
@@ -193,8 +179,7 @@ export function BackupExportSettings() {
   const [autoBackup, setAutoBackup] = useState(preferences?.auto_backup || false);
   const [backupFrequency, setBackupFrequency] = useState(preferences?.backup_frequency || 'weekly');
 
-  // Fetch all business data for complete export
-  const fetchAllBusinessData = async (): Promise<Omit<ExportData, 'profile' | 'preferences'>> => {
+  const fetchAllBusinessData = async (): Promise<Omit<ExportData, 'profile' | 'preferences' | 'exportedAt'>> => {
     const [sales, products, customers, employees, investments] = await Promise.all([
       getAll<Sale>('sales'),
       getAll<Product>('products'),
@@ -213,7 +198,6 @@ export function BackupExportSettings() {
     try {
       let exportData: ExportData = { exportedAt: new Date().toISOString() };
 
-      // Always fetch profile & preferences
       const profiles = await getByField<Profile>('profiles', 'user_id', user.uid);
       exportData.profile = profiles[0] || undefined;
       const prefs = await getByField<UserPreferences>('user_preferences', 'user_id', user.uid);
@@ -240,7 +224,7 @@ export function BackupExportSettings() {
           content = JSON.stringify(exportData, null, 2);
           mimeType = 'application/json';
           extension = 'json';
-        } else { // csv
+        } else {
           content = exportToCsv(exportData);
           mimeType = 'text/csv';
           extension = 'csv';
@@ -249,7 +233,7 @@ export function BackupExportSettings() {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `Rajlakshmi -jewellers-export-${type}-${fmt}-${Date.now()}.${extension}`;
+        link.download = `Rajlakshmi-jewellers-export-${type}-${fmt}-${Date.now()}.${extension}`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -339,7 +323,6 @@ export function BackupExportSettings() {
         <div className="space-y-4">
           <Label className="text-sm font-medium">Export Your Data</Label>
 
-          {/* Profile Export */}
           <div className="border rounded-lg p-4 space-y-3">
             <div>
               <p className="font-medium text-sm">Profile Data</p>
@@ -361,7 +344,6 @@ export function BackupExportSettings() {
             </div>
           </div>
 
-          {/* All User Data Export */}
           <div className="border rounded-lg p-4 space-y-3">
             <div>
               <p className="font-medium text-sm">All Business Data</p>
@@ -383,7 +365,6 @@ export function BackupExportSettings() {
             </div>
           </div>
 
-          {/* System Export (Admin only) */}
           {isAdmin && (
             <div className="border border-primary/50 rounded-lg p-4 space-y-3 bg-primary/5">
               <div>

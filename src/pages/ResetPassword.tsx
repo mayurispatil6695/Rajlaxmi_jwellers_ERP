@@ -28,8 +28,21 @@ export default function ResetPassword() {
   const { updateUserPassword, user } = useAuth();
 
   const validateForm = () => {
-    try { passwordSchema.parse({ password, confirmPassword }); setErrors({}); return true; }
-    catch (error) { if (error instanceof z.ZodError) { const fe: any = {}; error.errors.forEach((err) => { if (err.path[0] === 'password') fe.password = err.message; if (err.path[0] === 'confirmPassword') fe.confirmPassword = err.message; }); setErrors(fe); } return false; }
+    try {
+      passwordSchema.parse({ password, confirmPassword });
+      setErrors({});
+      return true;
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const fe: { password?: string; confirmPassword?: string } = {};
+        error.errors.forEach((err) => {
+          if (err.path[0] === 'password') fe.password = err.message;
+          if (err.path[0] === 'confirmPassword') fe.confirmPassword = err.message;
+        });
+        setErrors(fe);
+      }
+      return false;
+    }
   };
 
   const handleResetPassword = async (e: React.FormEvent) => {
@@ -62,15 +75,49 @@ export default function ResetPassword() {
       </div>
       <Card className="w-full max-w-md relative z-10 border-border/50 bg-card/80 backdrop-blur-xl shadow-2xl">
         <CardHeader className="text-center space-y-2">
-          <div className="mx-auto w-12 h-12 rounded-xl bg-gradient-gold flex items-center justify-center mb-2"><Sparkles className="w-6 h-6 text-primary-foreground" /></div>
+          <div className="mx-auto w-12 h-12 rounded-xl bg-gradient-gold flex items-center justify-center mb-2">
+            <Sparkles className="w-6 h-6 text-primary-foreground" />
+          </div>
           <CardTitle className="text-2xl font-bold">Reset Password</CardTitle>
           <CardDescription>Enter your new password below</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleResetPassword} className="space-y-4">
-            <div className="space-y-2"><Label htmlFor="new-password">New Password</Label><div className="relative"><Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><Input id="new-password" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} className="pl-10" disabled={isLoading} /></div>{errors.password && <p className="text-sm text-destructive">{errors.password}</p>}</div>
-            <div className="space-y-2"><Label htmlFor="confirm-password">Confirm Password</Label><div className="relative"><Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><Input id="confirm-password" type="password" placeholder="••••••••" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="pl-10" disabled={isLoading} /></div>{errors.confirmPassword && <p className="text-sm text-destructive">{errors.confirmPassword}</p>}</div>
-            <Button type="submit" className="w-full bg-gradient-gold hover:opacity-90" disabled={isLoading}>{isLoading ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Updating password...</>) : 'Update Password'}</Button>
+            <div className="space-y-2">
+              <Label htmlFor="new-password">New Password</Label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  id="new-password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="pl-10"
+                  disabled={isLoading}
+                />
+              </div>
+              {errors.password && <p className="text-sm text-destructive">{errors.password}</p>}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm-password">Confirm Password</Label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  id="confirm-password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="pl-10"
+                  disabled={isLoading}
+                />
+              </div>
+              {errors.confirmPassword && <p className="text-sm text-destructive">{errors.confirmPassword}</p>}
+            </div>
+            <Button type="submit" className="w-full bg-gradient-gold hover:opacity-90" disabled={isLoading}>
+              {isLoading ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Updating password...</>) : 'Update Password'}
+            </Button>
           </form>
         </CardContent>
       </Card>

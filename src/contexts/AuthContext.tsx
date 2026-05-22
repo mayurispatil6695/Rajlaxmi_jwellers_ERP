@@ -1,5 +1,9 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut as firebaseSignOut, sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup, updatePassword } from 'firebase/auth';
+import { 
+  User, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, 
+  signOut as firebaseSignOut, sendPasswordResetEmail, GoogleAuthProvider, 
+  signInWithPopup, updatePassword, AuthError 
+} from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 
 interface AuthContextType {
@@ -31,7 +35,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await createUserWithEmailAndPassword(auth, email, password);
       return { error: null };
-    } catch (error: any) {
+    } catch (err) {
+      const error = err as AuthError;
       return { error: new Error(error.message) };
     }
   };
@@ -40,7 +45,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       return { error: null };
-    } catch (error: any) {
+    } catch (err) {
+      const error = err as AuthError;
       let message = error.message;
       if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') {
         message = 'Invalid login credentials';
@@ -56,7 +62,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
       return { error: null };
-    } catch (error: any) {
+    } catch (err) {
+      const error = err as AuthError;
       return { error: new Error(error.message) };
     }
   };
@@ -69,7 +76,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await sendPasswordResetEmail(auth, email);
       return { error: null };
-    } catch (error: any) {
+    } catch (err) {
+      const error = err as AuthError;
       return { error: new Error(error.message) };
     }
   };
@@ -79,13 +87,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!auth.currentUser) throw new Error('No user logged in');
       await updatePassword(auth.currentUser, password);
       return { error: null };
-    } catch (error: any) {
+    } catch (err) {
+      const error = err as AuthError;
       return { error: new Error(error.message) };
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signUp, signIn, signOut: signOutFn, signInWithGoogle, resetPassword, updateUserPassword }}>
+    <AuthContext.Provider value={{ 
+      user, loading, signUp, signIn, signOut: signOutFn, 
+      signInWithGoogle, resetPassword, updateUserPassword 
+    }}>
       {children}
     </AuthContext.Provider>
   );

@@ -28,7 +28,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useUserData } from "@/hooks/useUserData";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { 
   Users, 
@@ -55,10 +54,6 @@ interface Employee {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-}
-
-// Extended type for internal use (includes password hash from Firebase)
-interface EmployeeWithHash extends Employee {
   password_hash?: string;
 }
 
@@ -83,7 +78,6 @@ export function EmployeeManagement() {
   const [saving, setSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   
-  // Form state
   const [formData, setFormData] = useState<EmployeeFormData>({
     employee_id: "",
     name: "",
@@ -138,27 +132,15 @@ export function EmployeeManagement() {
       setSaving(true);
       const { password, ...rest } = formData;
       
-      // Save to Firebase
-      await addItem('employees', { ...rest, is_active: true, password_hash: password });
-      
-      // Sync to backend employee auth store
-      const { error: syncError } = await supabase.functions.invoke('manage-employees', {
-        body: {
-          action: 'create',
-          employee_id: formData.employee_id,
-          password: formData.password,
-          name: formData.name,
-          email: formData.email || null,
-          phone: formData.phone || null,
-          department: formData.department || null,
-        },
+      await addItem('employees', { 
+        ...rest, 
+        is_active: true, 
+        password_hash: password,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       });
 
-      if (syncError) {
-        toast.error('Employee created in Firebase but backend sync failed');
-      }
-
-      toast.success("Employee created successfully");
+      toast.success("Employee created successfully! They can now login.");
       setCreateDialogOpen(false);
       resetForm();
       fetchEmployees();
@@ -184,8 +166,7 @@ export function EmployeeManagement() {
 
     try {
       setSaving(true);
-      // Build update data for Firebase
-      const updateData: Partial<EmployeeWithHash> & { id: string } = {
+      const updateData: Partial<Employee> & { id: string } = {
         id: selectedEmployee.id,
         name: formData.name,
         email: formData.email || null,
@@ -198,23 +179,6 @@ export function EmployeeManagement() {
       }
 
       await updateItem('employees', selectedEmployee.id, updateData);
-
-      // Sync to backend (get current password hash from existing employee if not changed)
-      const currentEmployee = employees.find(e => e.id === selectedEmployee.id) as EmployeeWithHash | undefined;
-      const passwordHash = formData.password || (currentEmployee?.password_hash || '');
-
-      await supabase.functions.invoke('manage-employees', {
-        body: {
-          action: 'sync',
-          employee_id: selectedEmployee.employee_id,
-          name: formData.name,
-          email: formData.email || null,
-          phone: formData.phone || null,
-          department: formData.department || null,
-          password_hash: passwordHash,
-          is_active: true,
-        },
-      });
 
       toast.success("Employee updated successfully");
       setEditDialogOpen(false);
@@ -233,22 +197,6 @@ export function EmployeeManagement() {
   const handleToggleActive = async (employee: Employee) => {
     try {
       await updateItem('employees', employee.id, { is_active: !employee.is_active });
-
-      const currentEmployee = employees.find(e => e.id === employee.id) as EmployeeWithHash | undefined;
-
-      await supabase.functions.invoke('manage-employees', {
-        body: {
-          action: 'sync',
-          employee_id: employee.employee_id,
-          name: employee.name,
-          email: employee.email || null,
-          phone: employee.phone || null,
-          department: employee.department || null,
-          password_hash: currentEmployee?.password_hash || '',
-          is_active: !employee.is_active,
-        },
-      });
-
       toast.success(`Employee ${employee.is_active ? 'deactivated' : 'activated'} successfully`);
       fetchEmployees();
     } catch (error: unknown) {
@@ -264,10 +212,6 @@ export function EmployeeManagement() {
     try {
       setSaving(true);
       await deleteItem('employees', selectedEmployee.id);
-      await supabase.functions.invoke('manage-employees', {
-        body: { action: 'delete', id: selectedEmployee.id },
-      });
-
       toast.success("Employee deleted successfully");
       setDeleteDialogOpen(false);
       setSelectedEmployee(null);
@@ -314,9 +258,8 @@ export function EmployeeManagement() {
 
   return (
     <>
-      {/* Stats Cards */}
       <div className="grid grid-cols-3 gap-4 mb-6">
-        <Card variant="elevated">
+        <Card variant="stat">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-primary/10">
@@ -329,7 +272,7 @@ export function EmployeeManagement() {
             </div>
           </CardContent>
         </Card>
-        <Card variant="elevated">
+        <Card variant="stat">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-green-500/10">
@@ -342,7 +285,7 @@ export function EmployeeManagement() {
             </div>
           </CardContent>
         </Card>
-        <Card variant="elevated">
+        <Card variant="stat">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-red-500/10">
@@ -357,7 +300,6 @@ export function EmployeeManagement() {
         </Card>
       </div>
 
-      {/* Employees Table */}
       <Card variant="elevated">
         <CardHeader>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -428,9 +370,7 @@ export function EmployeeManagement() {
                   ) : (
                     filteredEmployees.map((employee) => (
                       <TableRow key={employee.id}>
-                        <TableCell className="font-mono font-medium">
-                          {employee.employee_id}
-                        </TableCell>
+                        <TableCell className="font-mono font-medium">{employee.employee_id}</TableCell>
                         <TableCell className="font-medium">{employee.name}</TableCell>
                         <TableCell className="hidden md:table-cell text-muted-foreground">
                           {employee.email || '-'}

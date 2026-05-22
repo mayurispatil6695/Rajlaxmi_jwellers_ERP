@@ -1,2 +1,0 @@
-
-ALTER TABLE public.customers ADD COLUMN date_of_birth date NULL;

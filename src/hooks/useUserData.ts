@@ -12,12 +12,19 @@ export function useUserData() {
   const { user } = useAuth();
 
   const getUserPath = useCallback(
-    (collection: string) => {
-      if (!user?.uid) throw new Error("User not authenticated");
-      return `users/${user.uid}/${collection}`;
-    },
-    [user?.uid]
-  );
+  (collection: string) => {
+    if (!user?.uid) throw new Error("User not authenticated");
+    // Use shared location for employees and products
+    if (collection === "employees") {
+      return "shared_employees";
+    }
+    if (collection === "products") {
+      return "shared_products";
+    }
+    return `users/${user.uid}/${collection}`;
+  },
+  [user?.uid]
+);
 
   const getAll = useCallback(
     async <T>(collection: string): Promise<(T & { id: string })[]> => {

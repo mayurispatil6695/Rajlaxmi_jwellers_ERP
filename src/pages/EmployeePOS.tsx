@@ -61,6 +61,87 @@ const EmployeePOS = () => {
     },
   });
 
+  // ----- Helper functions (defined before use) -----
+  const addToCart = (product: Product) => {
+    const existing = cart.find((item) => item.id === product.id);
+    if (existing) {
+      if (existing.qty >= product.stock) {
+        toast.error("Not enough stock");
+        return;
+      }
+      setCart(cart.map((item) =>
+        item.id === product.id ? { ...item, qty: item.qty + 1 } : item
+      ));
+    } else {
+      setCart([...cart, {
+        id: product.id,
+        name: product.name,
+        weight: product.weight,
+        unit_price: product.unit_price,
+        stock: product.stock,
+        qty: 1,
+        sku: product.sku,
+      }]);
+    }
+    toast.success(`${product.name} added to cart`);
+  };
+
+  const sendToCalculator = (product: Product) => {
+    setCalcProduct({
+      id: product.id,
+      name: product.name,
+      weight: product.weight,
+      metal_type: product.metal_type,
+      unit_price: product.unit_price,
+      sku: product.sku,
+      stock: product.stock,
+      category: product.category,
+    });
+  };
+
+  const handleCalcAddToCart = useCallback((result: CalcResult) => {
+    const product = products.find((p) => p.id === result.productId);
+    if (product) {
+      const existing = cart.find((item) => item.id === product.id);
+      if (existing) {
+        if (existing.qty >= product.stock) {
+          toast.error("Not enough stock");
+          return;
+        }
+        setCart(cart.map((item) =>
+          item.id === product.id
+            ? { ...item, unit_price: result.calculatedPrice, qty: item.qty + 1, calculatedPrice: true, purity: result.purity }
+            : item
+        ));
+      } else {
+        setCart([...cart, {
+          id: product.id,
+          name: product.name,
+          weight: result.weight,
+          unit_price: result.calculatedPrice,
+          stock: product.stock,
+          qty: 1,
+          sku: product.sku,
+          calculatedPrice: true,
+          purity: result.purity,
+        }]);
+      }
+    } else {
+      setCart([...cart, {
+        id: `calc-${Date.now()}`,
+        name: result.productName,
+        weight: result.weight,
+        unit_price: result.calculatedPrice,
+        stock: 9999,
+        qty: 1,
+        sku: "CUSTOM",
+        calculatedPrice: true,
+        purity: result.purity,
+      }]);
+    }
+    toast.success(`₹${result.calculatedPrice.toLocaleString()} added to bill!`);
+  }, [cart, products]);
+
   // Barcode scanner detection
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -92,7 +173,10 @@ const EmployeePOS = () => {
     const product = products.find(
       (p) => p.barcode?.toLowerCase() === code.toLowerCase() || p.sku?.toLowerCase() === code.toLowerCase()
     );
-    if (!product) { toast.error(`Product not found: ${code}`); return; }
+    if (!product) {
+      toast.error(`Product not found: ${code}`);
+      return;
+    }
     if (isGoldProduct(product)) {
       sendToCalculator(product);
       toast.success(`🔊 Scanned: ${product.name} → Calculator`);
@@ -110,15 +194,25 @@ const EmployeePOS = () => {
       );
       if (product) {
         e.preventDefault();
-        isGoldProduct(product) ? sendToCalculator(product) : addToCart(product);
+        if (isGoldProduct(product)) {
+          sendToCalculator(product);
+        } else {
+          addToCart(product);
+        }
         setSearchQuery("");
         return;
       }
       const filtered = products.filter(
-        (p) => p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.sku.toLowerCase().includes(searchQuery.toLowerCase()) || p.barcode?.toLowerCase().includes(searchQuery.toLowerCase())
+        (p) => p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.barcode && p.barcode.toLowerCase().includes(searchQuery.toLowerCase()))
       );
       if (filtered.length === 1) {
-        isGoldProduct(filtered[0]) ? sendToCalculator(filtered[0]) : addToCart(filtered[0]);
+        if (isGoldProduct(filtered[0])) {
+          sendToCalculator(filtered[0]);
+        } else {
+          addToCart(filtered[0]);
+        }
         setSearchQuery("");
       }
     }
@@ -133,7 +227,14 @@ const EmployeePOS = () => {
 
       await employeeAddItem("sales", {
         invoice_number: invoiceNumber,
-        items: cart.map((item) => ({ product_id: item.id, name: item.name, qty: item.qty, price: item.unit_price, calculated: item.calculatedPrice || false, purity: item.purity || null })),
+        items: cart.map((item) => ({
+          product_id: item.id,
+          name: item.name,
+          qty: item.qty,
+          price: item.unit_price,
+          calculated: item.calculatedPrice || false,
+          purity: item.purity || null,
+        })),
         subtotal, tax, discount: 0, total,
         payment_method: paymentMethod,
         status: "Completed",
@@ -157,42 +258,14 @@ const EmployeePOS = () => {
     onError: (error) => toast.error("Failed to complete sale: " + error.message),
   });
 
-  const addToCart = (product: Product) => {
-    const existing = cart.find((item) => item.id === product.id);
-    if (existing) {
-      if (existing.qty >= product.stock) { toast.error("Not enough stock"); return; }
-      setCart(cart.map((item) => (item.id === product.id ? { ...item, qty: item.qty + 1 } : item)));
-    } else {
-      setCart([...cart, { id: product.id, name: product.name, weight: product.weight, unit_price: product.unit_price, stock: product.stock, qty: 1, sku: product.sku }]);
-    }
-    toast.success(`${product.name} added to cart`);
-  };
-
-  const handleCalcAddToCart = useCallback((result: CalcResult) => {
-    const product = products.find((p) => p.id === result.productId);
-    if (product) {
-      const existing = cart.find((item) => item.id === product.id);
-      if (existing) {
-        if (existing.qty >= product.stock) { toast.error("Not enough stock"); return; }
-        setCart(cart.map((item) => item.id === product.id ? { ...item, unit_price: result.calculatedPrice, qty: item.qty + 1, calculatedPrice: true, purity: result.purity } : item));
-      } else {
-        setCart([...cart, { id: product.id, name: product.name, weight: result.weight, unit_price: result.calculatedPrice, stock: product.stock, qty: 1, sku: product.sku, calculatedPrice: true, purity: result.purity }]);
-      }
-    } else {
-      setCart([...cart, { id: `calc-${Date.now()}`, name: result.productName, weight: result.weight, unit_price: result.calculatedPrice, stock: 9999, qty: 1, sku: "CUSTOM", calculatedPrice: true, purity: result.purity }]);
-    }
-    toast.success(`₹${result.calculatedPrice.toLocaleString()} added to bill!`);
-  }, [cart, products]);
-
-  const sendToCalculator = (product: Product) => {
-    setCalcProduct({ id: product.id, name: product.name, weight: product.weight, metal_type: product.metal_type, unit_price: product.unit_price, sku: product.sku, stock: product.stock, category: product.category });
-  };
-
   const updateQty = (productId: string, delta: number) => {
     setCart(cart.map((item) => {
       if (item.id === productId) {
         const newQty = item.qty + delta;
-        if (newQty > item.stock) { toast.error("Not enough stock"); return item; }
+        if (newQty > item.stock) {
+          toast.error("Not enough stock");
+          return item;
+        }
         return newQty > 0 ? { ...item, qty: newQty } : null;
       }
       return item;
@@ -206,7 +279,9 @@ const EmployeePOS = () => {
   const total = subtotal + tax;
 
   const filteredProducts = products.filter(
-    (p) => p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.sku.toLowerCase().includes(searchQuery.toLowerCase()) || (p.barcode && p.barcode.toLowerCase().includes(searchQuery.toLowerCase()))
+    (p) => p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (p.barcode && p.barcode.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   return (
@@ -235,7 +310,15 @@ const EmployeePOS = () => {
               <CardContent>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input ref={scanInputRef} placeholder="Scan barcode or type product name & press Enter..." className="pl-10" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={handleSearchKeyDown} autoFocus />
+                  <Input
+                    ref={scanInputRef}
+                    placeholder="Scan barcode or type product name & press Enter..."
+                    className="pl-10"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={handleSearchKeyDown}
+                    autoFocus
+                  />
                 </div>
                 <div className="mt-4 max-h-48 overflow-y-auto space-y-2">
                   {isLoading ? (
@@ -246,7 +329,11 @@ const EmployeePOS = () => {
                     filteredProducts.slice(0, 8).map((product) => {
                       const gold = isGoldProduct(product);
                       return (
-                        <div key={product.id} className="flex items-center justify-between p-2 rounded-lg bg-muted/30 border border-border/50 hover:bg-muted/50 cursor-pointer" onClick={() => gold ? sendToCalculator(product) : addToCart(product)}>
+                        <div
+                          key={product.id}
+                          className="flex items-center justify-between p-2 rounded-lg bg-muted/30 border border-border/50 hover:bg-muted/50 cursor-pointer"
+                          onClick={() => gold ? sendToCalculator(product) : addToCart(product)}
+                        >
                           <div className="flex items-center gap-2">
                             {gold && <Gem className="w-3.5 h-3.5 text-primary shrink-0" />}
                             <div>
@@ -262,9 +349,13 @@ const EmployeePOS = () => {
                           <div className="text-right flex items-center gap-2">
                             <p className="font-semibold text-primary text-sm">₹{product.unit_price.toLocaleString()}</p>
                             {gold ? (
-                              <Button variant="gold" size="sm" className="h-6 text-[10px] px-2"><Calculator className="w-3 h-3 mr-1" />Calculate</Button>
+                              <Button variant="gold" size="sm" className="h-6 text-[10px] px-2">
+                                <Calculator className="w-3 h-3 mr-1" />Calculate
+                              </Button>
                             ) : (
-                              <Button variant="ghost" size="sm" className="h-6 text-xs"><Plus className="w-3 h-3 mr-1" />Add</Button>
+                              <Button variant="ghost" size="sm" className="h-6 text-xs">
+                                <Plus className="w-3 h-3 mr-1" />Add
+                              </Button>
                             )}
                           </div>
                         </div>
@@ -332,7 +423,11 @@ const EmployeePOS = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <GoldRateCalculator selectedProduct={calcProduct} onAddToCart={handleCalcAddToCart} onProductConsumed={() => setCalcProduct(null)} />
+                <GoldRateCalculator
+                  selectedProduct={calcProduct}
+                  onAddToCart={handleCalcAddToCart}
+                  onProductConsumed={() => setCalcProduct(null)}
+                />
               </CardContent>
             </Card>
 
@@ -353,9 +448,30 @@ const EmployeePOS = () => {
                 <div className="space-y-2 pt-4">
                   <p className="text-sm font-medium text-muted-foreground">Payment Method</p>
                   <div className="grid grid-cols-3 gap-2">
-                    <Button variant={paymentMethod === "Cash" ? "default" : "outline"} className="flex-col h-14 sm:h-16 gap-1" onClick={() => setPaymentMethod("Cash")}><Banknote className="w-4 h-4 sm:w-5 sm:h-5" /><span className="text-xs">Cash</span></Button>
-                    <Button variant={paymentMethod === "Card" ? "default" : "outline"} className="flex-col h-14 sm:h-16 gap-1" onClick={() => setPaymentMethod("Card")}><CreditCard className="w-4 h-4 sm:w-5 sm:h-5" /><span className="text-xs">Card</span></Button>
-                    <Button variant={paymentMethod === "UPI" ? "default" : "outline"} className="flex-col h-14 sm:h-16 gap-1" onClick={() => setPaymentMethod("UPI")}><Smartphone className="w-4 h-4 sm:w-5 sm:h-5" /><span className="text-xs">UPI</span></Button>
+                    <Button
+                      variant={paymentMethod === "Cash" ? "default" : "outline"}
+                      className="flex-col h-14 sm:h-16 gap-1"
+                      onClick={() => setPaymentMethod("Cash")}
+                    >
+                      <Banknote className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <span className="text-xs">Cash</span>
+                    </Button>
+                    <Button
+                      variant={paymentMethod === "Card" ? "default" : "outline"}
+                      className="flex-col h-14 sm:h-16 gap-1"
+                      onClick={() => setPaymentMethod("Card")}
+                    >
+                      <CreditCard className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <span className="text-xs">Card</span>
+                    </Button>
+                    <Button
+                      variant={paymentMethod === "UPI" ? "default" : "outline"}
+                      className="flex-col h-14 sm:h-16 gap-1"
+                      onClick={() => setPaymentMethod("UPI")}
+                    >
+                      <Smartphone className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <span className="text-xs">UPI</span>
+                    </Button>
                   </div>
                 </div>
 
@@ -365,7 +481,13 @@ const EmployeePOS = () => {
                   </div>
                 )}
 
-                <Button variant="gold" className="w-full mt-4" size="lg" disabled={cart.length === 0 || completeSaleMutation.isPending} onClick={() => completeSaleMutation.mutate()}>
+                <Button
+                  variant="gold"
+                  className="w-full mt-4"
+                  size="lg"
+                  disabled={cart.length === 0 || completeSaleMutation.isPending}
+                  onClick={() => completeSaleMutation.mutate()}
+                >
                   {completeSaleMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                   Complete Sale
                 </Button>

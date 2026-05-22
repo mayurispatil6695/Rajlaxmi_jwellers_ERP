@@ -20,16 +20,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useUserData } from "@/hooks/useUserData";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { 
   UserCog, 
@@ -46,7 +38,6 @@ import {
   UserCheck,
   UserX,
   Loader2,
-  RefreshCw,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -63,7 +54,6 @@ interface Employee {
   updated_at: string;
 }
 
-
 const HR = () => {
   const { getAll, addItem, updateItem, deleteItem } = useUserData();
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -73,7 +63,6 @@ const HR = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [saving, setSaving] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -92,76 +81,13 @@ const HR = () => {
   const fetchEmployees = async () => {
     try {
       setLoading(true);
-      const data = await getAll<any>('employees');
-      
-      // Auto-fix: migrate password -> password_hash for existing records
-      let fixedCount = 0;
-      for (const emp of data) {
-        if (emp.password && !emp.password_hash) {
-          await updateItem('employees', emp.id, { password_hash: emp.password, password: null });
-          emp.password_hash = emp.password;
-          delete emp.password;
-          fixedCount++;
-        }
-      }
-      if (fixedCount > 0) {
-        toast.success(`Fixed ${fixedCount} employee record(s) — passwords migrated successfully`);
-      }
-
-      // Sync all Firebase employees to Supabase via edge function
-      for (const emp of data) {
-        if (emp.employee_id && emp.password_hash) {
-          await supabase.functions.invoke('manage-employees', {
-            body: {
-              action: 'sync',
-              employee_id: emp.employee_id,
-              name: emp.name,
-              email: emp.email || null,
-              phone: emp.phone || null,
-              department: emp.department || null,
-              password_hash: emp.password_hash,
-              is_active: emp.is_active !== false,
-            },
-          });
-        }
-      }
-      
+      const data = await getAll<Employee>('employees');
       setEmployees(data);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error fetching employees:", error);
       toast.error("Failed to fetch employees");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const syncEmployeesToSupabase = async () => {
-    try {
-      setSyncing(true);
-      let syncCount = 0;
-      for (const emp of employees) {
-        if (emp.employee_id && emp.password_hash) {
-          await supabase.functions.invoke('manage-employees', {
-            body: {
-              action: 'sync',
-              employee_id: emp.employee_id,
-              name: emp.name,
-              email: emp.email || null,
-              phone: emp.phone || null,
-              department: emp.department || null,
-              password_hash: emp.password_hash,
-              is_active: emp.is_active !== false,
-            },
-          });
-          syncCount++;
-        }
-      }
-      toast.success(`Synced ${syncCount} employee(s) successfully`);
-    } catch (error: any) {
-      console.error("Sync error:", error);
-      toast.error("Failed to sync employees");
-    } finally {
-      setSyncing(false);
     }
   };
 
@@ -192,34 +118,21 @@ const HR = () => {
       setSaving(true);
       const { password, ...rest } = formData;
       
-      // Save to Firebase
-      await addItem('employees', { ...rest, is_active: true, password_hash: password });
-      
-      // Sync to Supabase via edge function (handles hashing)
-      const { data: result, error: fnError } = await supabase.functions.invoke('manage-employees', {
-        body: {
-          action: 'create',
-          employee_id: formData.employee_id,
-          password: formData.password,
-          name: formData.name,
-          email: formData.email || null,
-          phone: formData.phone || null,
-          department: null,
-        },
+      await addItem('employees', { 
+        ...rest, 
+        is_active: true, 
+        password_hash: password,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       });
-      
-      if (fnError) {
-        console.error("Edge function error:", fnError);
-        toast.error("Employee created in Firebase but sync failed. Try 'Sync Employees'.");
-      }
 
-      toast.success("Employee created successfully! They can now login with their Employee ID and password.");
+      toast.success("Employee created successfully! They can now login.");
       setCreateDialogOpen(false);
       resetForm();
       fetchEmployees();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error creating employee:", error);
-      toast.error(error.message || "Failed to create employee");
+      toast.error(error instanceof Error ? error.message : "Failed to create employee");
     } finally {
       setSaving(false);
     }
@@ -238,42 +151,28 @@ const HR = () => {
 
     try {
       setSaving(true);
-      const updateData: any = {
+      const updateData: Partial<Employee> & { id: string } = {
         id: selectedEmployee.id,
         name: formData.name,
         email: formData.email || null,
         phone: formData.phone || null,
-        department: null,
+        department: formData.department || null,
       };
 
       if (formData.password) {
         updateData.password_hash = formData.password;
       }
 
-      await updateItem('employees', selectedEmployee!.id, updateData);
-
-      // Sync to Supabase via edge function
-      await supabase.functions.invoke('manage-employees', {
-        body: {
-          action: 'sync',
-          employee_id: selectedEmployee.employee_id,
-          name: formData.name,
-          email: formData.email || null,
-          phone: formData.phone || null,
-          department: null,
-          password_hash: formData.password || selectedEmployee.password_hash || '',
-          is_active: true,
-        },
-      });
+      await updateItem('employees', selectedEmployee.id, updateData);
 
       toast.success("Employee updated successfully");
       setEditDialogOpen(false);
       resetForm();
       setSelectedEmployee(null);
       fetchEmployees();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error updating employee:", error);
-      toast.error(error.message || "Failed to update employee");
+      toast.error(error instanceof Error ? error.message : "Failed to update employee");
     } finally {
       setSaving(false);
     }
@@ -282,12 +181,11 @@ const HR = () => {
   const handleToggleActive = async (employee: Employee) => {
     try {
       await updateItem('employees', employee.id, { is_active: !employee.is_active });
-
       toast.success(`Employee ${employee.is_active ? 'deactivated' : 'activated'} successfully`);
       fetchEmployees();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error toggling employee status:", error);
-      toast.error(error.message || "Failed to update employee status");
+      toast.error("Failed to update employee status");
     }
   };
 
@@ -297,14 +195,13 @@ const HR = () => {
     try {
       setSaving(true);
       await deleteItem('employees', selectedEmployee.id);
-
       toast.success("Employee deleted successfully");
       setDeleteDialogOpen(false);
       setSelectedEmployee(null);
       fetchEmployees();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error deleting employee:", error);
-      toast.error(error.message || "Failed to delete employee");
+      toast.error("Failed to delete employee");
     } finally {
       setSaving(false);
     }
@@ -410,15 +307,6 @@ const HR = () => {
               <UserCog className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
               All Employees
             </CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={syncEmployeesToSupabase}
-              disabled={syncing || employees.length === 0}
-            >
-              {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-              Sync Employees
-            </Button>
           </div>
         </CardHeader>
         <CardContent>

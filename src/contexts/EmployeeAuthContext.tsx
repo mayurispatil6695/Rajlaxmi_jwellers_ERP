@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { ref, get } from 'firebase/database';
+import { db } from '@/lib/firebase';
 
 interface Employee {
   id: string;
@@ -7,6 +8,18 @@ interface Employee {
   name: string;
   email: string | null;
   department: string | null;
+}
+
+// Shape of employee data stored in Firebase
+interface RawEmployee {
+  employee_id: string;
+  name: string;
+  email: string | null;
+  department: string | null;
+  password_hash: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 interface EmployeeAuthContextType {
@@ -18,137 +31,91 @@ interface EmployeeAuthContextType {
 }
 
 const EmployeeAuthContext = createContext<EmployeeAuthContextType | undefined>(undefined);
-
 const SESSION_KEY = 'employee_session';
-
-type LocalEmployeeSession = {
-  employee: Employee;
-  session_token: string;
-  expires_at: string;
-};
+const EMPLOYEES_PATH = 'shared_employees';
 
 export function EmployeeAuthProvider({ children }: { children: ReactNode }) {
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    validateSession();
-  }, []);
-
-  const validateSession = async () => {
     const sessionRaw = localStorage.getItem(SESSION_KEY);
-    if (!sessionRaw) {
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const sessionData = JSON.parse(sessionRaw) as LocalEmployeeSession;
-
-      if (!sessionData.employee || !sessionData.expires_at) {
-        localStorage.removeItem(SESSION_KEY);
-        setEmployee(null);
-        setLoading(false);
-        return;
-      }
-
-      if (new Date(sessionData.expires_at) < new Date()) {
-        localStorage.removeItem(SESSION_KEY);
-        setEmployee(null);
-        setLoading(false);
-        return;
-      }
-
-      // Validate session token with backend
+    if (sessionRaw) {
       try {
-        const { data, error } = await supabase.functions.invoke('employee-auth', {
-          body: { session_token: sessionData.session_token },
-          headers: { 'Content-Type': 'application/json' },
-        });
-
-        // Parse response if it's a string
-        const response = typeof data === 'string' ? JSON.parse(data) : data;
-
-        if (error || !response?.valid) {
+        const session = JSON.parse(sessionRaw);
+        if (session.employee && new Date(session.expires_at) > new Date()) {
+          setEmployee(session.employee);
+        } else {
           localStorage.removeItem(SESSION_KEY);
-          setEmployee(null);
-          setLoading(false);
-          return;
         }
-
-        setEmployee(response.employee || sessionData.employee);
       } catch {
-        // If backend validation fails, still use local session if not expired
-        setEmployee(sessionData.employee);
+        localStorage.removeItem(SESSION_KEY);
       }
-    } catch (error) {
-      console.error('Session validation error:', error);
-      localStorage.removeItem(SESSION_KEY);
-      setEmployee(null);
-    } finally {
-      setLoading(false);
     }
-  };
+    setLoading(false);
+  }, []);
 
   const signIn = async (employeeId: string, password: string) => {
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('employee-auth', {
-        body: { employee_id: employeeId, password },
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      // Parse response if it's a string
-      const response = typeof data === 'string' ? JSON.parse(data) : data;
-
-      if (fnError) {
-        return { error: new Error(response?.error || fnError.message || 'Login failed') };
+      const employeesRef = ref(db, EMPLOYEES_PATH);
+      const snapshot = await get(employeesRef);
+      if (!snapshot.exists()) {
+        return { error: new Error('No employees found') };
       }
 
-      if (response?.error) {
-        return { error: new Error(response.error) };
+      const allEmployees = snapshot.val() as Record<string, RawEmployee> | null;
+      if (!allEmployees) {
+        return { error: new Error('No employee data') };
       }
 
-      if (!response?.success || !response?.employee) {
-        return { error: new Error('Invalid response from server') };
+      let foundEmployee: RawEmployee | null = null;
+      let foundKey: string | null = null;
+
+      for (const [key, emp] of Object.entries(allEmployees)) {
+        if (emp.employee_id === employeeId) {
+          foundEmployee = emp;
+          foundKey = key;
+          break;
+        }
       }
 
-      const emp: Employee = {
-        id: response.employee.id,
-        employee_id: response.employee.employee_id,
-        name: response.employee.name,
-        email: response.employee.email || null,
-        department: response.employee.department || null,
+      if (!foundEmployee) {
+        return { error: new Error('Invalid credentials') };
+      }
+
+      if (foundEmployee.password_hash !== password) {
+        return { error: new Error('Invalid credentials') };
+      }
+
+      if (!foundEmployee.is_active) {
+        return { error: new Error('Account deactivated') };
+      }
+
+      const employeeData: Employee = {
+        id: foundKey,
+        employee_id: foundEmployee.employee_id,
+        name: foundEmployee.name,
+        email: foundEmployee.email || null,
+        department: foundEmployee.department || null,
       };
 
-      localStorage.setItem(
-        SESSION_KEY,
-        JSON.stringify({
-          employee: emp,
-          session_token: response.session_token,
-          expires_at: response.expires_at,
-        } satisfies LocalEmployeeSession)
-      );
+      const sessionToken = crypto.randomUUID();
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        employee: employeeData,
+        session_token: sessionToken,
+        expires_at: expiresAt.toISOString(),
+      }));
 
-      setEmployee(emp);
+      setEmployee(employeeData);
       return { error: null };
-    } catch (error: any) {
-      return { error: new Error(error.message || 'Login failed') };
+    } catch (error) {
+      console.error('Login error:', error);
+      return { error: error instanceof Error ? error : new Error('Login failed') };
     }
   };
 
   const signOut = async () => {
-    const sessionRaw = localStorage.getItem(SESSION_KEY);
-    if (sessionRaw) {
-      try {
-        const sessionData = JSON.parse(sessionRaw) as LocalEmployeeSession;
-        await supabase.functions.invoke('employee-auth', {
-          body: { session_token: sessionData.session_token },
-          headers: { 'Content-Type': 'application/json' },
-        });
-      } catch (error) {
-        console.error('Logout error:', error);
-      }
-    }
     localStorage.removeItem(SESSION_KEY);
     setEmployee(null);
   };

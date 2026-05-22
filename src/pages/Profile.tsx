@@ -36,18 +36,35 @@ export default function Profile() {
   }, [user]);
 
   const fetchProfile = async () => {
+    if (!user) return;
     try {
-      const results = await getByField<Profile>('profiles', 'user_id', user!.uid);
+      const results = await getByField<Profile>('profiles', 'user_id', user.uid);
       if (results.length > 0) {
         setProfile(results[0]);
         setDisplayName(results[0].display_name || '');
       } else {
-        const id = await addItem('profiles', { user_id: user!.uid, display_name: null, avatar_url: null });
-        const newProfile: Profile = { id, user_id: user!.uid, display_name: null, avatar_url: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+        const id = await addItem('profiles', {
+          user_id: user.uid,
+          display_name: null,
+          avatar_url: null,
+        });
+        const newProfile: Profile = {
+          id,
+          user_id: user.uid,
+          display_name: null,
+          avatar_url: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
         setProfile(newProfile);
       }
-    } catch (error: any) {
-      toast({ title: 'Error loading profile', description: error.message, variant: 'destructive' });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Unknown error');
+      toast({
+        title: 'Error loading profile',
+        description: error.message,
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }
@@ -59,9 +76,17 @@ export default function Profile() {
     try {
       await updateItem('profiles', profile.id, { display_name: displayName });
       setProfile({ ...profile, display_name: displayName });
-      toast({ title: 'Profile updated', description: 'Your profile has been saved successfully.' });
-    } catch (error: any) {
-      toast({ title: 'Error saving profile', description: error.message, variant: 'destructive' });
+      toast({
+        title: 'Profile updated',
+        description: 'Your profile has been saved successfully.',
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Unknown error');
+      toast({
+        title: 'Error saving profile',
+        description: error.message,
+        variant: 'destructive',
+      });
     } finally {
       setSaving(false);
     }
@@ -74,45 +99,94 @@ export default function Profile() {
   };
 
   if (loading) {
-    return (<DashboardLayout><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div></DashboardLayout>);
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    );
   }
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full"><ArrowLeft className="w-5 h-5" /></Button>
-          <div><h1 className="text-2xl font-display font-semibold text-foreground">Profile Settings</h1><p className="text-muted-foreground">Manage your account information and preferences</p></div>
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full">
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-display font-semibold text-foreground">Profile Settings</h1>
+            <p className="text-muted-foreground">Manage your account information and preferences</p>
+          </div>
         </div>
 
         <div className="grid gap-6 md:grid-cols-3">
           <Card className="md:col-span-1">
-            <CardHeader><CardTitle className="text-lg">Profile Picture</CardTitle><CardDescription>Your profile avatar</CardDescription></CardHeader>
+            <CardHeader>
+              <CardTitle className="text-lg">Profile Picture</CardTitle>
+              <CardDescription>Your profile avatar</CardDescription>
+            </CardHeader>
             <CardContent className="flex flex-col items-center gap-4">
               <Avatar className="w-32 h-32 border-4 border-primary/20">
                 <AvatarImage src={profile?.avatar_url || ''} alt={displayName || 'Avatar'} />
-                <AvatarFallback className="text-2xl bg-primary/10 text-primary">{getInitials()}</AvatarFallback>
+                <AvatarFallback className="text-2xl bg-primary/10 text-primary">
+                  {getInitials()}
+                </AvatarFallback>
               </Avatar>
               <p className="text-sm text-muted-foreground text-center">Avatar uploads coming soon</p>
             </CardContent>
           </Card>
 
           <Card className="md:col-span-2">
-            <CardHeader><CardTitle className="text-lg">Account Information</CardTitle><CardDescription>Update your display name and view account details</CardDescription></CardHeader>
+            <CardHeader>
+              <CardTitle className="text-lg">Account Information</CardTitle>
+              <CardDescription>Update your display name and view account details</CardDescription>
+            </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="displayName" className="flex items-center gap-2"><User className="w-4 h-4" />Display Name</Label>
-                <Input id="displayName" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Enter your display name" className="max-w-md" />
+                <Label htmlFor="displayName" className="flex items-center gap-2">
+                  <User className="w-4 h-4" />Display Name
+                </Label>
+                <Input
+                  id="displayName"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Enter your display name"
+                  className="max-w-md"
+                />
               </div>
               <Separator />
               <div className="space-y-4">
-                <div className="space-y-2"><Label className="flex items-center gap-2 text-muted-foreground"><Mail className="w-4 h-4" />Email Address</Label><p className="text-foreground">{user?.email}</p></div>
-                <div className="space-y-2"><Label className="flex items-center gap-2 text-muted-foreground"><Shield className="w-4 h-4" />Account Created</Label><p className="text-foreground">{profile?.created_at ? new Date(profile.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A'}</p></div>
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2 text-muted-foreground">
+                    <Mail className="w-4 h-4" />Email Address
+                  </Label>
+                  <p className="text-foreground">{user?.email}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2 text-muted-foreground">
+                    <Shield className="w-4 h-4" />Account Created
+                  </Label>
+                  <p className="text-foreground">
+                    {profile?.created_at
+                      ? new Date(profile.created_at).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                        })
+                      : 'N/A'}
+                  </p>
+                </div>
               </div>
               <Separator />
               <div className="flex justify-end">
                 <Button onClick={handleSaveProfile} disabled={saving}>
-                  {saving ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving...</>) : (<><Save className="w-4 h-4 mr-2" />Save Changes</>)}
+                  {saving ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving...</>
+                  ) : (
+                    <><Save className="w-4 h-4 mr-2" />Save Changes</>
+                  )}
                 </Button>
               </div>
             </CardContent>

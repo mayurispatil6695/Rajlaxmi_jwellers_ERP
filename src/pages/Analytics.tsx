@@ -7,14 +7,24 @@ import {
   TrendingUp, TrendingDown, Download, Calendar, PieChart, Activity,
   Loader2, IndianRupee, ShoppingBag, Users, Package, Gem, BarChart3,
   UserCog, Wallet, ArrowUpRight, ArrowDownRight, Target, Award, Repeat, Sparkles,
+  type LucideIcon,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart as RePieChart, Pie, Cell, BarChart, Bar, LineChart, Line, Legend,
+  type TooltipProps,
 } from "recharts";
 import { useQuery } from "@tanstack/react-query";
 import { useUserData } from "@/hooks/useUserData";
 import { useMemo } from "react";
+
+// ---------- Types ----------
+interface SaleItem {
+  name: string;
+  qty: number;
+  price?: number;
+  unit_price?: number;
+}
 
 interface Sale {
   id: string;
@@ -23,7 +33,7 @@ interface Sale {
   tax: number;
   discount: number;
   created_at: string;
-  items: any;
+  items: SaleItem[] | unknown;
   payment_method: string;
   customer_name: string | null;
   invoice_number: string;
@@ -68,6 +78,14 @@ interface Investment {
   status: string;
 }
 
+// Payload type for recharts custom tooltip
+type TooltipPayloadItem = {
+  dataKey: string;
+  color: string;
+  value: number;
+  name?: string;
+};
+
 const COLORS = [
   "hsl(43, 74%, 49%)",
   "hsl(43, 74%, 62%)",
@@ -84,16 +102,20 @@ const formatCurrency = (value: number) => {
   return `₹${value.toLocaleString("en-IN")}`;
 };
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = ({ active, payload, label }: TooltipProps<number, string>) => {
   if (active && payload && payload.length) {
     return (
       <div className="bg-card border border-border rounded-lg p-3 shadow-elevated text-sm">
         <p className="font-medium mb-1.5">{label}</p>
-        {payload.map((entry: any, i: number) => (
+        {payload.map((entry: TooltipPayloadItem, i: number) => (
           <div key={i} className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
-            <span className="text-muted-foreground capitalize">{entry.name}:</span>
-            <span className="font-medium">{typeof entry.value === "number" && entry.name !== "count" ? formatCurrency(entry.value) : entry.value}</span>
+            <span className="text-muted-foreground capitalize">{entry.dataKey}:</span>
+            <span className="font-medium">
+              {typeof entry.value === "number" && entry.dataKey !== "count"
+                ? formatCurrency(entry.value)
+                : entry.value}
+            </span>
           </div>
         ))}
       </div>
@@ -112,9 +134,11 @@ const Analytics = () => {
 
   const isLoading = sL || pL || cL || eL || iL;
 
-  const isImitationSale = (s: Sale) => {
-    const items = Array.isArray(s.items) ? s.items : [];
-    return items.some((item: any) => {
+  const isImitationSale = (s: Sale): boolean => {
+    let items: SaleItem[] = [];
+    if (Array.isArray(s.items)) items = s.items as SaleItem[];
+    else if (s.items && typeof s.items === "object") items = Object.values(s.items);
+    return items.some((item) => {
       const name = (item.name || "").toLowerCase();
       return name.includes("imitation") || name.includes("artificial") || name.includes("fashion");
     });
@@ -127,35 +151,29 @@ const Analytics = () => {
     const totalDiscount = sales.reduce((a, s) => a + Number(s.discount || 0), 0);
     const totalTax = sales.reduce((a, s) => a + Number(s.tax || 0), 0);
 
-    // Imitation stats
     const imitationSales = sales.filter(isImitationSale);
     const imitationRevenue = imitationSales.reduce((a, s) => a + Number(s.total || 0), 0);
     const imitationOrders = imitationSales.length;
     const regularRevenue = totalRevenue - imitationRevenue;
 
-    // Today's stats
     const today = new Date().toDateString();
     const todaySales = sales.filter(s => new Date(s.created_at).toDateString() === today);
     const todayRevenue = todaySales.reduce((a, s) => a + Number(s.total || 0), 0);
 
-    // Inventory metrics
     const totalStock = products.reduce((a, p) => a + Number(p.stock || 0), 0);
     const inventoryValue = products.reduce((a, p) => a + (Number(p.unit_price || 0) * Number(p.stock || 0)), 0);
     const lowStockProducts = products.filter(p => p.stock <= 5 && p.stock > 0);
     const outOfStockProducts = products.filter(p => p.stock === 0);
     const totalWeight = products.reduce((a, p) => a + (Number(p.weight || 0) * Number(p.stock || 0)), 0);
 
-    // Customer metrics
     const totalCustomers = customers.length;
     const totalLoyaltyPoints = customers.reduce((a, c) => a + Number(c.loyalty_points || 0), 0);
     const avgPurchasePerCustomer = totalCustomers > 0 ? customers.reduce((a, c) => a + Number(c.total_purchases || 0), 0) / totalCustomers : 0;
     const repeatCustomers = customers.filter(c => Number(c.total_purchases || 0) > 0).length;
 
-    // HR metrics
     const activeEmployees = employees.filter(e => e.is_active !== false).length;
     const totalEmployees = employees.length;
 
-    // Investment metrics
     const totalInvested = investments.reduce((a, inv) => a + Number(inv.invested_amount || 0), 0);
     const totalCurrentValue = investments.reduce((a, inv) => a + Number(inv.current_value || 0), 0);
     const investmentProfit = totalCurrentValue - totalInvested;
@@ -172,9 +190,8 @@ const Analytics = () => {
     };
   }, [sales, products, customers, employees, investments]);
 
-  // Chart data
+  // Chart data generation – all typed
   const chartData = useMemo(() => {
-    // Monthly revenue
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const monthlyRevenue: Record<string, number> = {};
     const monthlyOrders: Record<string, number> = {};
@@ -186,17 +203,14 @@ const Analytics = () => {
     });
     const revenueByMonth = months.map(m => ({ month: m, revenue: monthlyRevenue[m] || 0, orders: monthlyOrders[m] || 0 }));
 
-    // Payment method distribution
     const paymentCounts: Record<string, number> = {};
     sales.forEach(s => { paymentCounts[s.payment_method || "Cash"] = (paymentCounts[s.payment_method || "Cash"] || 0) + 1; });
     const paymentData = Object.entries(paymentCounts).map(([name, value], i) => ({ name, value, color: COLORS[i % COLORS.length] }));
 
-    // Product category distribution
     const catCount: Record<string, number> = {};
     products.forEach(p => { catCount[p.category] = (catCount[p.category] || 0) + 1; });
     const categoryData = Object.entries(catCount).slice(0, 6).map(([name, value], i) => ({ name, value, color: COLORS[i % COLORS.length] }));
 
-    // Metal type distribution (by inventory value)
     const metalValue: Record<string, number> = {};
     products.forEach(p => {
       const val = Number(p.unit_price || 0) * Number(p.stock || 0);
@@ -204,35 +218,29 @@ const Analytics = () => {
     });
     const metalData = Object.entries(metalValue).map(([name, value], i) => ({ name, value, color: COLORS[i % COLORS.length] }));
 
-    // Top customers
     const topCustomers = [...customers]
       .sort((a, b) => Number(b.total_purchases || 0) - Number(a.total_purchases || 0))
       .slice(0, 5)
       .map(c => ({ name: c.name.split(" ")[0], purchases: Number(c.total_purchases || 0) }));
 
-    // Department distribution
     const deptCount: Record<string, number> = {};
     employees.forEach(e => { deptCount[e.department || "Other"] = (deptCount[e.department || "Other"] || 0) + 1; });
     const deptData = Object.entries(deptCount).map(([name, value], i) => ({ name, value, color: COLORS[i % COLORS.length] }));
 
-    // Investment by metal type
     const investByMetal: Record<string, number> = {};
     investments.forEach(inv => { investByMetal[inv.metal_type || "Gold"] = (investByMetal[inv.metal_type || "Gold"] || 0) + Number(inv.invested_amount || 0); });
     const investmentByMetal = Object.entries(investByMetal).map(([name, value], i) => ({ name, value, color: COLORS[i % COLORS.length] }));
 
-    // Customer city distribution
     const cityCount: Record<string, number> = {};
     customers.forEach(c => { cityCount[c.city || "Unknown"] = (cityCount[c.city || "Unknown"] || 0) + 1; });
     const cityData = Object.entries(cityCount).slice(0, 5).map(([name, value], i) => ({ name, value, color: COLORS[i % COLORS.length] }));
 
-    // Low stock alert data
     const lowStockData = products
       .filter(p => p.stock <= 10)
       .sort((a, b) => a.stock - b.stock)
       .slice(0, 8)
       .map(p => ({ name: p.name.length > 12 ? p.name.slice(0, 12) + "…" : p.name, stock: p.stock, fullName: p.name }));
 
-    // Imitation vs Regular monthly breakdown
     const imitationByMonth: Record<string, number> = {};
     const regularByMonth: Record<string, number> = {};
     sales.forEach(s => {
@@ -253,7 +261,6 @@ const Analytics = () => {
     return { revenueByMonth, paymentData, categoryData, metalData, topCustomers, deptData, investmentByMetal, cityData, lowStockData, imitationVsRegular };
   }, [sales, products, customers, employees, investments]);
 
-  // Fallbacks for empty data
   const displayPayment = chartData.paymentData.length > 0 ? chartData.paymentData : [{ name: "No Data", value: 1, color: "hsl(var(--muted))" }];
   const displayCategory = chartData.categoryData.length > 0 ? chartData.categoryData : [{ name: "No Data", value: 1, color: "hsl(var(--muted))" }];
   const displayMetal = chartData.metalData.length > 0 ? chartData.metalData : [{ name: "No Data", value: 1, color: "hsl(var(--muted))" }];
@@ -305,7 +312,6 @@ const Analytics = () => {
 
             {/* === BILLING & REVENUE TAB === */}
             <TabsContent value="billing" className="space-y-4">
-              {/* Revenue stats row */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <StatMini label="Avg Order Value" value={formatCurrency(metrics.avgOrderValue)} icon={Target} />
                 <StatMini label="Total Discounts" value={formatCurrency(metrics.totalDiscount)} icon={ArrowDownRight} negative />
@@ -314,7 +320,6 @@ const Analytics = () => {
               </div>
 
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-                {/* Revenue trend */}
                 <Card variant="elevated" className="xl:col-span-2">
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center gap-2 text-base"><Activity className="w-4 h-4 text-primary" />Monthly Revenue & Orders</CardTitle>
@@ -340,7 +345,6 @@ const Analytics = () => {
                   </CardContent>
                 </Card>
 
-                {/* Payment methods */}
                 <Card variant="elevated">
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center gap-2 text-base"><PieChart className="w-4 h-4 text-primary" />Payment Methods</CardTitle>
@@ -439,7 +443,6 @@ const Analytics = () => {
               </div>
 
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-                {/* Metal type value */}
                 <Card variant="elevated">
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center gap-2 text-base"><Gem className="w-4 h-4 text-primary" />Value by Metal Type</CardTitle>
@@ -459,7 +462,6 @@ const Analytics = () => {
                   </CardContent>
                 </Card>
 
-                {/* Category distribution */}
                 <Card variant="elevated">
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center gap-2 text-base"><PieChart className="w-4 h-4 text-primary" />By Category</CardTitle>
@@ -479,7 +481,6 @@ const Analytics = () => {
                   </CardContent>
                 </Card>
 
-                {/* Low stock alert bar chart */}
                 <Card variant="elevated">
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center gap-2 text-base text-destructive"><ArrowDownRight className="w-4 h-4" />Low Stock Alert</CardTitle>
@@ -511,7 +512,6 @@ const Analytics = () => {
               </div>
 
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                {/* Top customers */}
                 <Card variant="elevated">
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center gap-2 text-base"><Award className="w-4 h-4 text-primary" />Top 5 Customers</CardTitle>
@@ -531,7 +531,6 @@ const Analytics = () => {
                   </CardContent>
                 </Card>
 
-                {/* City distribution */}
                 <Card variant="elevated">
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center gap-2 text-base"><BarChart3 className="w-4 h-4 text-primary" />Customers by City</CardTitle>
@@ -670,9 +669,17 @@ const Analytics = () => {
   );
 };
 
-// --- Helper Components ---
+// --- Helper Components (fully typed) ---
 
-function KPICard({ icon: Icon, label, value, sub, positive }: { icon: any; label: string; value: string; sub: string; positive: boolean }) {
+interface KPICardProps {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  sub: string;
+  positive: boolean;
+}
+
+function KPICard({ icon: Icon, label, value, sub, positive }: KPICardProps) {
   return (
     <Card variant="stat">
       <CardContent className="pt-4 px-3 sm:px-4">
@@ -690,7 +697,15 @@ function KPICard({ icon: Icon, label, value, sub, positive }: { icon: any; label
   );
 }
 
-function StatMini({ label, value, icon: Icon, negative, positive }: { label: string; value: string; icon: any; negative?: boolean; positive?: boolean }) {
+interface StatMiniProps {
+  label: string;
+  value: string;
+  icon: LucideIcon;
+  negative?: boolean;
+  positive?: boolean;
+}
+
+function StatMini({ label, value, icon: Icon, negative, positive }: StatMiniProps) {
   return (
     <Card>
       <CardContent className="pt-4 px-3 sm:px-4 flex items-center gap-3">
@@ -706,7 +721,11 @@ function StatMini({ label, value, icon: Icon, negative, positive }: { label: str
   );
 }
 
-function PieLegend({ data }: { data: { name: string; value: number; color: string }[] }) {
+interface PieLegendProps {
+  data: { name: string; value: number; color: string }[];
+}
+
+function PieLegend({ data }: PieLegendProps) {
   return (
     <div className="space-y-1.5 mt-3">
       {data.map(d => (
