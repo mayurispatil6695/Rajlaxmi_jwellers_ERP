@@ -7,14 +7,40 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// Generate a secure session token
 function generateSessionToken(): string {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
   return Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-serve(async (req) => {
+interface Employee {
+  id: string;
+  employee_id: string;
+  name: string;
+  email: string | null;
+  department: string | null;
+  is_active: boolean;
+  password_hash: string;
+}
+
+interface SessionWithEmployee {
+  employees: Employee | null;
+}
+
+interface LoginBody {
+  employee_id: string;
+  password: string;
+}
+
+interface ValidateBody {
+  session_token: string;
+}
+
+interface LogoutBody {
+  session_token?: string;
+}
+
+serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -27,16 +53,20 @@ serve(async (req) => {
 
   try {
     const url = new URL(req.url);
-    const body = await req.json();
-    
-    // Determine action from query param OR body
-    const action = url.searchParams.get("action") || body.action || 
-      (body.employee_id && body.password ? "login" : 
-       body.session_token ? "validate" : null);
+    const rawBody = await req.json();
+    // Safe: we know the body is a JSON object
+    const body = rawBody as Record<string, unknown>;
+
+    // Determine action from query param or body
+    const action =
+      url.searchParams.get("action") ||
+      (body.action as string) ||
+      (body.employee_id && body.password ? "login" : body.session_token ? "validate" : null);
 
     // Login action
     if (req.method === "POST" && action === "login") {
-      const { employee_id, password } = body;
+      // Safe cast: we already validated employee_id and password exist
+      const { employee_id, password } = body as unknown as LoginBody;
 
       if (!employee_id || !password) {
         return new Response(
@@ -45,13 +75,12 @@ serve(async (req) => {
         );
       }
 
-      // Find the employee
       const { data: employee, error: findError } = await supabaseAdmin
         .from("employees")
         .select("*")
         .eq("employee_id", employee_id)
         .eq("is_active", true)
-        .maybeSingle();
+        .maybeSingle<Employee>();
 
       if (findError) {
         console.error("Error finding employee:", findError);
@@ -68,7 +97,7 @@ serve(async (req) => {
         );
       }
 
-      // Verify password - hash incoming password and compare with stored hash
+      // Hash the incoming password
       const encoder = new TextEncoder();
       const data = encoder.encode(password);
       const hashBuffer = await crypto.subtle.digest("SHA-256", data);
@@ -82,17 +111,14 @@ serve(async (req) => {
         );
       }
 
-      // Create session token
       const sessionToken = generateSessionToken();
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-      // Delete existing sessions for this employee
       await supabaseAdmin
         .from("employee_sessions")
         .delete()
         .eq("employee_id", employee.id);
 
-      // Create new session
       const { error: sessionError } = await supabaseAdmin
         .from("employee_sessions")
         .insert({
@@ -126,9 +152,9 @@ serve(async (req) => {
       );
     }
 
-    // Validate session action
+    // Validate session
     if (req.method === "POST" && action === "validate") {
-      const { session_token } = body;
+      const { session_token } = body as unknown as ValidateBody;
 
       if (!session_token) {
         return new Response(
@@ -137,7 +163,6 @@ serve(async (req) => {
         );
       }
 
-      // Find session and join with employee
       const { data: session, error: sessionError } = await supabaseAdmin
         .from("employee_sessions")
         .select(`
@@ -153,9 +178,9 @@ serve(async (req) => {
         `)
         .eq("session_token", session_token)
         .gt("expires_at", new Date().toISOString())
-        .maybeSingle();
+        .maybeSingle<SessionWithEmployee>();
 
-      if (sessionError || !session || !session.employees?.is_active) {
+      if (sessionError || !session?.employees || !session.employees.is_active) {
         return new Response(
           JSON.stringify({ valid: false, error: "Invalid or expired session" }),
           { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -177,17 +202,15 @@ serve(async (req) => {
       );
     }
 
-    // Logout action
+    // Logout
     if (req.method === "POST" && action === "logout") {
-      const { session_token } = body;
-
+      const { session_token } = body as unknown as LogoutBody;
       if (session_token) {
         await supabaseAdmin
           .from("employee_sessions")
           .delete()
           .eq("session_token", session_token);
       }
-
       return new Response(
         JSON.stringify({ success: true }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -198,10 +221,11 @@ serve(async (req) => {
       JSON.stringify({ error: "Invalid action" }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Employee auth error:", error);
+    const message = error instanceof Error ? error.message : "Internal server error";
     return new Response(
-      JSON.stringify({ error: "Internal server error" }),
+      JSON.stringify({ error: message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

@@ -3,14 +3,13 @@ import { getAuth } from "firebase/auth";
 import { getDatabase } from "firebase/database";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDeS9pG468xGTcSBb31GBli3n4ZUWo5sVc",
-  authDomain: "jewellery-1f0be.firebaseapp.com",
-  databaseURL: "https://jewellery-1f0be-default-rtdb.firebaseio.com",
-  projectId: "jewellery-1f0be",
-  storageBucket: "jewellery-1f0be.firebasestorage.app",
-  messagingSenderId: "917180969234",
-  appId: "1:917180969234:web:75fcfc29beee95610183cb",
-  measurementId: "G-50L5BZBP0T"
+  apiKey: "AIzaSyAEaOljszS6_MbVH94eH6W1MuqNDj9M-aA",
+  authDomain: "rajlaxmi-jewellers.firebaseapp.com",
+  databaseURL: "https://rajlaxmi-jewellers-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "rajlaxmi-jewellers",
+  storageBucket: "rajlaxmi-jewellers.firebasestorage.app",
+  messagingSenderId: "144056189652",
+  appId: "1:144056189652:web:1850aec75c129123f4f141"
 };
 
 const app = initializeApp(firebaseConfig);

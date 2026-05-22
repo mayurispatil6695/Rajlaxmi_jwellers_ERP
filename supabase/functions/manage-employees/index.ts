@@ -15,7 +15,46 @@ async function hashPassword(password: string): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-serve(async (req) => {
+interface SyncBody {
+  action: "sync";
+  employee_id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  department?: string;
+  password_hash?: string;
+  is_active?: boolean;
+}
+
+interface CreateBody {
+  action: "create";
+  employee_id: string;
+  password: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  department?: string;
+}
+
+interface UpdateBody {
+  action: "update";
+  id: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  department?: string;
+  is_active?: boolean;
+  password?: string;
+}
+
+interface DeleteBody {
+  action: "delete";
+  id: string;
+}
+
+type RequestBody = SyncBody | CreateBody | UpdateBody | DeleteBody;
+
+serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -28,12 +67,12 @@ serve(async (req) => {
   });
 
   try {
-    const body = await req.json();
+    const body = (await req.json()) as RequestBody;
     const action = body.action;
 
     // SYNC - Upsert employee from Firebase to Supabase
     if (action === "sync") {
-      const { employee_id, name, email, phone, department, password_hash, is_active } = body;
+      const { employee_id, name, email, phone, department, password_hash, is_active } = body as SyncBody;
       
       if (!employee_id) {
         return new Response(
@@ -86,7 +125,7 @@ serve(async (req) => {
 
     // CREATE - New employee with password hashing
     if (action === "create") {
-      const { employee_id, password, name, email, phone, department } = body;
+      const { employee_id, password, name, email, phone, department } = body as CreateBody;
 
       if (!employee_id || !password || !name) {
         return new Response(
@@ -120,9 +159,13 @@ serve(async (req) => {
       const { data: newEmployee, error } = await supabaseAdmin
         .from("employees")
         .insert({
-          employee_id, password_hash: passwordHash, name,
-          email: email || null, phone: phone || null,
-          department: department || null, is_active: true,
+          employee_id,
+          password_hash: passwordHash,
+          name,
+          email: email || null,
+          phone: phone || null,
+          department: department || null,
+          is_active: true,
         })
         .select()
         .single();
@@ -137,7 +180,7 @@ serve(async (req) => {
 
     // UPDATE
     if (action === "update") {
-      const { id, name, email, phone, department, is_active, password } = body;
+      const { id, name, email, phone, department, is_active, password } = body as UpdateBody;
 
       if (!id) {
         return new Response(
@@ -184,7 +227,7 @@ serve(async (req) => {
 
     // DELETE
     if (action === "delete") {
-      const { id } = body;
+      const { id } = body as DeleteBody;
 
       if (!id) {
         return new Response(

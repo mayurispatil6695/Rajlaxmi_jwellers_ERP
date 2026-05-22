@@ -2,11 +2,13 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const FIREBASE_DB_URL = "https://jewellery-1f0be-default-rtdb.firebaseio.com";
-const FIREBASE_API_KEY = "AIzaSyDeS9pG468xGTcSBb31GBli3n4ZUWo5sVc";
+// 👇 Update these to YOUR new Firebase project values
+const FIREBASE_DB_URL = "https://rajlaxmi-jewellers-default-rtdb.firebaseio.com";
+const FIREBASE_API_KEY = "AIzaSyAEaOljszS6_MbVH94eH6W1MuqNDj9M-aA";
 
 // Cache the ID token to avoid signing in on every request
 let cachedToken: string | null = null;
@@ -30,38 +32,44 @@ async function getFirebaseIdToken(): Promise<string> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password, returnSecureToken: true }),
-    }
+    },
   );
 
-  const data = await res.json();
+  const data = await res.json() as { error?: { message: string }; idToken?: string };
   if (data.error) {
     console.error("Firebase Auth error:", JSON.stringify(data.error));
     throw new Error(data.error.message || "Firebase auth failed");
   }
 
-  cachedToken = data.idToken;
+  cachedToken = data.idToken!;
   tokenExpiry = Date.now() + 50 * 60 * 1000;
   return cachedToken!;
 }
 
 // Helper to map collection paths to shared locations for employees
 function getFirestorePath(originalPath: string): string {
-  // For products, use the shared root node
   if (originalPath === "products") {
     return "shared_products";
   }
-  // All other collections stay as they are
   return originalPath;
 }
 
-serve(async (req) => {
+interface RequestBody {
+  path?: string;
+  action?: string;
+  data?: Record<string, unknown>;
+  id?: string;
+}
+
+serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
     const idToken = await getFirebaseIdToken();
-    const { path, action, data, id } = await req.json();
+    const body = await req.json() as RequestBody;
+    const { path, action, data, id } = body;
 
     if (!path) {
       return new Response(JSON.stringify({ error: "path is required" }), {
@@ -73,15 +81,15 @@ serve(async (req) => {
     const authParam = `auth=${idToken}`;
     const actualPath = getFirestorePath(path);
 
-    // READ
+    // READ (getAll)
     if (!action || action === "getAll") {
       const url = id
         ? `${FIREBASE_DB_URL}/${actualPath}/${id}.json?${authParam}`
         : `${FIREBASE_DB_URL}/${actualPath}.json?${authParam}`;
-      const res = await fetch(url);
-      const raw = await res.json();
+      const response = await fetch(url);
+      const raw: unknown = await response.json();
 
-      if (!raw || (typeof raw === "object" && raw.error)) {
+      if (!raw || (typeof raw === "object" && (raw as { error?: unknown }).error)) {
         console.error("Firebase read error:", raw);
         return new Response(JSON.stringify([]), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -96,14 +104,15 @@ serve(async (req) => {
       }
 
       if (id) {
-        return new Response(JSON.stringify({ id, ...raw }), {
+        return new Response(JSON.stringify({ id, ...(raw as Record<string, unknown>) }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      const items = Object.entries(raw).map(([key, val]: [string, any]) => ({
+      // raw is an object with keys as ids
+      const items = Object.entries(raw as Record<string, unknown>).map(([key, val]) => ({
         id: key,
-        ...val,
+        ...(val as Record<string, unknown>),
       }));
 
       return new Response(JSON.stringify(items), {
@@ -113,16 +122,16 @@ serve(async (req) => {
 
     // ADD
     if (action === "add") {
-      const res = await fetch(`${FIREBASE_DB_URL}/${actualPath}.json?${authParam}`, {
+      const response = await fetch(`${FIREBASE_DB_URL}/${actualPath}.json?${authParam}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...data,
+          ...(data || {}),
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }),
       });
-      const result = await res.json();
+      const result = await response.json() as { error?: unknown; name?: string };
       if (result.error) {
         return new Response(JSON.stringify({ error: result.error }), {
           status: 400,
@@ -136,15 +145,15 @@ serve(async (req) => {
 
     // UPDATE
     if (action === "update" && id) {
-      const res = await fetch(`${FIREBASE_DB_URL}/${actualPath}/${id}.json?${authParam}`, {
+      const response = await fetch(`${FIREBASE_DB_URL}/${actualPath}/${id}.json?${authParam}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...data,
+          ...(data || {}),
           updated_at: new Date().toISOString(),
         }),
       });
-      const result = await res.json();
+      const result = await response.json() as { error?: unknown };
       if (result.error) {
         return new Response(JSON.stringify({ error: result.error }), {
           status: 400,
