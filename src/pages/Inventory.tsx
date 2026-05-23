@@ -202,6 +202,7 @@ const Inventory = () => {
         message: `${newProduct.name} has been added to inventory.`,
         type: "inventory",
         priority: "low",
+        action_url: "/inventory",   // 👈 add this
       });
       if (newProduct.stock <= 5) {
         createNotification({
@@ -209,6 +210,7 @@ const Inventory = () => {
           message: `${newProduct.name} has only ${newProduct.stock} units in stock.`,
           type: "inventory",
           priority: "high",
+          action_url: "/inventory",   // 👈 add this
         });
       }
       setIsDialogOpen(false);
