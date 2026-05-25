@@ -112,7 +112,7 @@ const EmployeePOS = () => {
         sku: product.sku,
       }]);
     }
-    toast.success(`${product.name} added to cart`);
+    toast.success(`${product.name} added to cart`, { duration: 1000, position: 'top-right' });
   };
 
   const sendToCalculator = (product: Product) => {
@@ -210,7 +210,7 @@ const EmployeePOS = () => {
       toast.success(`🔊 Scanned: ${product.name} → Calculator`);
     } else {
       addToCart(product);
-      toast.success(`🔊 Scanned: ${product.name} → Added to Bill`);
+      toast.success(`🔊 Scanned: ${product.name} → Added to Bill`, { duration: 1000, position: 'top-right' });
     }
     setSearchQuery("");
   }, [products, cart]);

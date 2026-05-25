@@ -27,19 +27,63 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-const PURITY_MAP: Record<string, { value: number; label: string }> = {
-  "24K": { value: 1.0, label: "24K (99.9%)" },
-  "22K": { value: 0.916, label: "22K (91.6%)" },
-  "18K": { value: 0.75, label: "18K (75.0%)" },
-  "14K": { value: 0.585, label: "14K (58.5%)" },
+type MetalType = "gold" | "silver" | "platinum" | "diamond";
+
+// Purity maps for each metal
+const PURITY_MAP: Record<MetalType, Record<string, number>> = {
+  gold: {
+    "24K": 1.0,
+    "22K": 0.916,
+    "18K": 0.75,
+    "14K": 0.585,
+  },
+  silver: {
+    "999": 1.0,
+    "925": 0.925,
+    "900": 0.9,
+  },
+  platinum: {
+    "999": 1.0,
+    "950": 0.95,
+    "900": 0.9,
+  },
+  diamond: {
+    "D-IF": 1.0,
+    "D-VVS1": 0.95,
+    "D-VS1": 0.9,
+  },
 };
 
-function metalTypeToPurity(metalType: string): string {
-  if (metalType.includes("24K")) return "24K";
-  if (metalType.includes("22K")) return "22K";
-  if (metalType.includes("18K")) return "18K";
-  if (metalType.includes("14K")) return "14K";
-  return "22K";
+function getPurityLabel(metal: MetalType, purityKey: string): string {
+  const val = PURITY_MAP[metal][purityKey];
+  if (metal === "gold") return `${purityKey} (${(val * 100).toFixed(1)}%)`;
+  if (metal === "silver") return `${purityKey} (${(val * 100).toFixed(0)}%)`;
+  if (metal === "platinum") return `${purityKey} (${(val * 100).toFixed(0)}%)`;
+  return `${purityKey} (${(val * 100).toFixed(0)}%)`; // diamond
+}
+
+// Detect metal type from product's metal_type string
+function guessMetalType(metalTypeStr: string): MetalType {
+  const lower = metalTypeStr.toLowerCase();
+  if (lower.includes("silver")) return "silver";
+  if (lower.includes("platinum")) return "platinum";
+  if (lower.includes("diamond")) return "diamond";
+  return "gold"; // default to gold for any gold variant
+}
+
+// Default purity for a given metal (first key)
+function defaultPurity(metal: MetalType): string {
+  return Object.keys(PURITY_MAP[metal])[0];
+}
+
+// If the metal_type already contains a purity (e.g., "Silver 925"), try to match it
+function matchPurityFromMetalType(metalType: MetalType, fullMetalString: string): string {
+  const lower = fullMetalString.toLowerCase();
+  const options = Object.keys(PURITY_MAP[metalType]);
+  for (const opt of options) {
+    if (lower.includes(opt.toLowerCase())) return opt;
+  }
+  return defaultPurity(metalType);
 }
 
 export interface ProductForCalc {
@@ -60,14 +104,15 @@ export interface CalcResult {
   weight: number;
   purity: string;
   makingCharges: number;
-   goldRate: number;   // <-- add this line
+  goldRate: number; // kept for compatibility – means rate per gram/carat
 }
 
 interface CalcItem {
   id: string;
   productId?: string;
   productName?: string;
-  goldRate: string;
+  metalType: MetalType;
+  rate: string; // rate per gram (or per carat for diamond)
   weight: string;
   purity: string;
   makingType: "percent" | "fixed";
@@ -77,7 +122,8 @@ interface CalcItem {
 
 const defaultItem = (): CalcItem => ({
   id: crypto.randomUUID(),
-  goldRate: "",
+  metalType: "gold",
+  rate: "",
   weight: "",
   purity: "22K",
   makingType: "percent",
@@ -86,18 +132,18 @@ const defaultItem = (): CalcItem => ({
 });
 
 const calcItemResult = (item: CalcItem) => {
-  const rate = parseFloat(item.goldRate) || 0;
+  const rate = parseFloat(item.rate) || 0;
   const weight = parseFloat(item.weight) || 0;
   const makingAmt = parseFloat(item.makingCharges) || 0;
   const additional = parseFloat(item.additionalCharges) || 0;
 
-  const goldValue = rate * weight;
+  const metalValue = rate * weight;
   const makingTotal =
     item.makingType === "percent"
-      ? (goldValue * makingAmt) / 100
+      ? (metalValue * makingAmt) / 100
       : makingAmt * weight;
-  const total = goldValue + makingTotal + additional;
-  return { goldValue, makingTotal, additional, total };
+  const total = metalValue + makingTotal + additional;
+  return { metalValue, makingTotal, additional, total };
 };
 
 const fmt = (n: number) =>
@@ -119,12 +165,15 @@ export function GoldRateCalculator({
 
   useEffect(() => {
     if (selectedProduct) {
-      const purity = metalTypeToPurity(selectedProduct.metal_type);
+      const metalType = guessMetalType(selectedProduct.metal_type);
+      // Try to match purity from the metal_type string (e.g., "Silver 925" -> "925")
+      const purity = matchPurityFromMetalType(metalType, selectedProduct.metal_type);
       const newItem: CalcItem = {
         id: crypto.randomUUID(),
         productId: selectedProduct.id,
         productName: selectedProduct.name,
-        goldRate: "",
+        metalType,
+        rate: "",
         weight: String(selectedProduct.weight),
         purity,
         makingType: "percent",
@@ -133,12 +182,12 @@ export function GoldRateCalculator({
       };
       setItems((prev) => {
         const first = prev[0];
-        if (first && !first.goldRate && !first.weight) {
+        if (first && !first.rate && !first.weight) {
           return [newItem, ...prev.slice(1)];
         }
         return [newItem, ...prev];
       });
-      toast.success(`${selectedProduct.name} loaded — enter gold rate to calculate`);
+      toast.success(`${selectedProduct.name} loaded — enter rate to calculate`);
       onProductConsumed?.();
     }
   }, [selectedProduct, onProductConsumed]);
@@ -181,17 +230,17 @@ export function GoldRateCalculator({
       if (!onAddToCart) return;
       const res = calcItemResult(item);
       if (res.total <= 0) {
-        toast.error("Enter gold rate to calculate price first");
+        toast.error("Enter rate to calculate price first");
         return;
       }
       onAddToCart({
         productId: item.productId || item.id,
-        productName: item.productName || "Custom Gold Item",
+        productName: item.productName || `Custom ${item.metalType} Item`,
         calculatedPrice: Math.round(res.total),
         weight: parseFloat(item.weight) || 0,
         purity: item.purity,
         makingCharges: res.makingTotal,
-        goldRate: parseFloat(item.goldRate) || 0,   // <-- add this line
+        goldRate: parseFloat(item.rate) || 0,
       });
       setItems((prev) => {
         const remaining = prev.filter((i) => i.id !== item.id);
@@ -212,6 +261,7 @@ export function GoldRateCalculator({
         {items.map((item, idx) => {
           const res = calcItemResult(item);
           const isProductLinked = !!item.productId;
+          const purityOptions = PURITY_MAP[item.metalType];
           return (
             <motion.div
               key={item.id}
@@ -250,19 +300,43 @@ export function GoldRateCalculator({
                 </CardHeader>
 
                 <CardContent className="space-y-4 overflow-hidden">
-                  {/* Row 1: Gold Rate & Weight */}
+                  {/* Metal Type selector (only for custom items, not for inventory products) */}
+                  {!isProductLinked && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Metal Type</Label>
+                      <Select
+                        value={item.metalType}
+                        onValueChange={(v: MetalType) => {
+                          const newPurity = defaultPurity(v);
+                          updateItem(item.id, { metalType: v, purity: newPurity });
+                        }}
+                      >
+                        <SelectTrigger className="h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="gold">Gold</SelectItem>
+                          <SelectItem value="silver">Silver</SelectItem>
+                          <SelectItem value="platinum">Platinum</SelectItem>
+                          <SelectItem value="diamond">Diamond</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {/* Row 1: Rate & Weight */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <Label className="flex items-center gap-1.5 text-xs">
                         <IndianRupee className="h-3 w-3 text-primary" />
-                        Gold Rate/g
+                        Rate/g (₹)
                       </Label>
                       <Input
                         type="number"
                         placeholder="e.g. 7200"
-                        value={item.goldRate}
+                        value={item.rate}
                         onChange={(e) =>
-                          updateItem(item.id, { goldRate: e.target.value })
+                          updateItem(item.id, { rate: e.target.value })
                         }
                         className="h-9 text-sm w-full"
                       />
@@ -289,11 +363,32 @@ export function GoldRateCalculator({
                     </div>
                   </div>
 
-                  {/* Row 2: Making Charges & Additional Charges - FIXED OVERLAP */}
+                  {/* Row 2: Purity & Making Charges */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <Label className="flex items-center gap-1.5 text-xs">
                         <Percent className="h-3 w-3 text-primary" />
+                        Purity
+                      </Label>
+                      <Select
+                        value={item.purity}
+                        onValueChange={(v) => updateItem(item.id, { purity: v })}
+                      >
+                        <SelectTrigger className="h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.keys(purityOptions).map((p) => (
+                            <SelectItem key={p} value={p}>
+                              {getPurityLabel(item.metalType, p)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="flex items-center gap-1.5 text-xs">
+                        <TrendingUp className="h-3 w-3 text-primary" />
                         Making Charges
                       </Label>
                       <div className="flex flex-wrap items-center gap-2 min-w-0">
@@ -322,21 +417,23 @@ export function GoldRateCalculator({
                         </Select>
                       </div>
                     </div>
-                    <div className="space-y-1.5">
-                      <Label className="flex items-center gap-1.5 text-xs">
-                        <TrendingUp className="h-3 w-3 text-primary" />
-                        Additional ₹
-                      </Label>
-                      <Input
-                        type="number"
-                        placeholder="0"
-                        value={item.additionalCharges}
-                        onChange={(e) =>
-                          updateItem(item.id, { additionalCharges: e.target.value })
-                        }
-                        className="h-9 text-sm w-full"
-                      />
-                    </div>
+                  </div>
+
+                  {/* Additional Charges */}
+                  <div className="space-y-1.5">
+                    <Label className="flex items-center gap-1.5 text-xs">
+                      <TrendingUp className="h-3 w-3 text-primary" />
+                      Additional ₹
+                    </Label>
+                    <Input
+                      type="number"
+                      placeholder="0"
+                      value={item.additionalCharges}
+                      onChange={(e) =>
+                        updateItem(item.id, { additionalCharges: e.target.value })
+                      }
+                      className="h-9 text-sm w-full"
+                    />
                   </div>
 
                   {/* Price Breakdown */}
@@ -349,11 +446,9 @@ export function GoldRateCalculator({
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                         Price Breakdown
                       </p>
-                      <Row label="Gold Value" value={res.goldValue} />
+                      <Row label="Metal Value" value={res.metalValue} />
                       <Row label="Making Charges" value={res.makingTotal} />
-                      {res.additional > 0 && (
-                        <Row label="Additional" value={res.additional} />
-                      )}
+                      {res.additional > 0 && <Row label="Additional" value={res.additional} />}
                       <div className="border-t border-primary/10 pt-1.5 mt-1.5">
                         <div className="flex justify-between font-bold text-sm">
                           <span>Total (excl. GST)</span>

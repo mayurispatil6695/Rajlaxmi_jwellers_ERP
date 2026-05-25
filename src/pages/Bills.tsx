@@ -17,7 +17,8 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { type ExchangeItem } from "@/components/pos/ExchangeItem";
-import { generateReceiptHTML,printViaBrowser,type ReceiptData } from "@/lib/receiptUtils";
+import { generateReceiptHTML, printViaBrowser, type ReceiptData } from "@/lib/receiptUtils";
+
 interface SaleItem {
   name: string;
   qty: number;
@@ -25,6 +26,7 @@ interface SaleItem {
   price?: number;
   weight?: number;
   purity?: string;
+  making?: number;
 }
 
 interface Sale {
@@ -45,7 +47,7 @@ interface Sale {
   payment_status?: string;
   doc_type?: "estimate" | "invoice";
   exchange_items?: ExchangeItem[];
-  gold_rate?: number; 
+  gold_rate?: number;
 }
 
 function isImitationSale(sale: Sale & { is_imitation_bill?: boolean }): boolean {
@@ -68,23 +70,50 @@ const Bills = () => {
   const printRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
+  const formatCurrencyPlain = (value: number) => `₹${value.toLocaleString("en-IN")}`;
+
   const generateBillText = (sale: Sale) => {
     const items = Array.isArray(sale.items) ? sale.items : [];
-    const lines = [
-      `🧾 *${sale.doc_type === "estimate" ? "ESTIMATE" : "INVOICE"}: ${sale.invoice_number}*`,
-      `👤 Customer: ${sale.customer_name || "Walk-in"}`,
-      `📅 Date: ${sale.created_at ? format(new Date(sale.created_at), "dd MMM yyyy, hh:mm a") : "—"}`,
-      `💳 Payment: ${sale.payment_method || "N/A"}`,
-      "",
-      "*Items:*",
-      ...items.map((item: SaleItem) => `  • ${item.name} × ${item.qty} = ₹${((item.unit_price || item.price || 0) * (item.qty || 1)).toLocaleString("en-IN")}`),
-      "",
-      `Subtotal: ₹${(sale.subtotal || 0).toLocaleString("en-IN")}`,
-      `Tax: ₹${(sale.tax || 0).toLocaleString("en-IN")}`,
-      ...(sale.discount > 0 ? [`Discount: -₹${(sale.discount || 0).toLocaleString("en-IN")}`] : []),
-      `*Total: ₹${(sale.total || 0).toLocaleString("en-IN")}*`,
-    ];
-    return lines.join("\n");
+    const exchangeTotal = (sale.exchange_items || []).reduce((sum, ex) => sum + ex.value, 0);
+    const pending = sale.pending_amount || 0;
+    const goldRate = sale.gold_rate || 0;
+    const isInvoice = sale.doc_type !== "estimate";
+
+    let text = `🏷️ *${isInvoice ? "INVOICE" : "ESTIMATE"}* #${sale.invoice_number}\n\n`;
+    text += `👤 Customer: ${sale.customer_name || "Walk-in"}\n`;
+    text += `📅 Date: ${format(new Date(sale.created_at), "dd MMM yyyy, hh:mm a")}\n`;
+    text += `💳 Payment: ${sale.payment_method || "N/A"}\n`;
+    if (goldRate) text += `✨ Gold Rate: ₹${goldRate}/g\n`;
+    text += `\n📋 *Items:*\n`;
+
+    items.forEach(item => {
+      const amount = (item.unit_price || item.price || 0) * (item.qty || 1);
+      const weight = item.weight ? ` (${item.weight}g)` : "";
+      const making = item.making ? ` making ₹${item.making}` : "";
+      text += `• ${item.name}${weight} x${item.qty}${making} = ${formatCurrencyPlain(amount)}\n`;
+    });
+
+    if (sale.exchange_items && sale.exchange_items.length > 0) {
+      text += `\n🔄 *Exchange:*\n`;
+      sale.exchange_items.forEach(ex => {
+        text += `  ${ex.description} (${ex.weight}g) -₹${ex.value.toLocaleString()}\n`;
+      });
+    }
+
+    text += `\n💰 *Totals:*\n`;
+    text += `Subtotal: ${formatCurrencyPlain(sale.subtotal || 0)}\n`;
+    text += `GST (3%): ${formatCurrencyPlain(sale.tax || 0)}\n`;
+    if (sale.discount > 0) text += `Discount: -${formatCurrencyPlain(sale.discount)}\n`;
+    if (exchangeTotal > 0) text += `Exchange deduction: -${formatCurrencyPlain(exchangeTotal)}\n`;
+    text += `*Total: ${formatCurrencyPlain(sale.total || 0)}*\n`;
+    if (pending > 0) text += `⚠️ Pending: ${formatCurrencyPlain(pending)}\n`;
+
+    if (isInvoice && sale.paid_amount) {
+      text += `\n💵 *Payment received:* ${formatCurrencyPlain(sale.paid_amount)}\n`;
+    }
+
+    text += `\nThank you for shopping at Rajlakshmi Jewellers!`;
+    return text;
   };
 
   const handleWhatsAppShare = (sale: Sale) => {
@@ -99,48 +128,67 @@ const Bills = () => {
     }
   };
 
-  const handlePrint = () => {
-  if (!selectedBill) return;
-  // Build ReceiptData from selectedBill
-  const receiptData: ReceiptData = {
-    invoiceNumber: selectedBill.invoice_number,
-    customerName: selectedBill.customer_name || "Walk-in",
-    items: (selectedBill.items || []).map(item => ({
-      name: item.name,
-      qty: item.qty,
-      price: item.unit_price || item.price || 0,
-      weight: item.weight,
-      purity: item.purity,
-      making: 0, // if you have making charges stored, retrieve them
-    })),
-    subtotal: selectedBill.subtotal || 0,
-    tax: selectedBill.tax || 0,
-    total: selectedBill.total || 0,
-    docType: selectedBill.doc_type === "estimate" ? "estimate" : "invoice",
-    goldRate: selectedBill.gold_rate || 0, // you need to store gold_rate in sales
-    exchangeItems: selectedBill.exchange_items || [],
-    paymentBreakdown: {
-      cash: selectedBill.payment_method === "Cash" ? (selectedBill.paid_amount || selectedBill.total) : 0,
-      card: selectedBill.payment_method === "Card" ? (selectedBill.paid_amount || 0) : 0,
-      cheque: 0,
-      online: selectedBill.payment_method === "UPI" ? (selectedBill.paid_amount || 0) : 0,
-    },
-    netPayable: selectedBill.total,
-  };
-  printViaBrowser(receiptData);
-};
- 
-
   const handleExport = (sale: Sale) => {
     const text = generateBillText(sale).replace(/\*/g, "");
+    const safeCustomer = (sale.customer_name || "Walk-in").replace(/[^a-z0-9]/gi, "_");
+    const fileName = `${sale.doc_type === "estimate" ? "ESTIMATE" : "INVOICE"}_${sale.invoice_number}_${safeCustomer}.txt`;
     const blob = new Blob([text], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${sale.doc_type === "estimate" ? "estimate" : "invoice"}-${sale.invoice_number}.txt`;
+    a.download = fileName;
     a.click();
     URL.revokeObjectURL(url);
     toast.success("Exported successfully!");
+  };
+
+  // Improved gold rate detection (supports 22K, 24K, etc.)
+  const getGoldRateFromItems = (items: SaleItem[]): number => {
+    for (const item of items) {
+      const name = (item.name || "").toLowerCase();
+      if (name.includes("gold") || name.includes("24k") || name.includes("22k") || name.includes("18k") || name.includes("14k")) {
+        if (item.weight && item.price && item.weight > 0) {
+          return Math.round(item.price / item.weight);
+        }
+      }
+    }
+    return 0;
+  };
+
+  const handlePrint = () => {
+    if (!selectedBill) return;
+
+    let goldRate = selectedBill.gold_rate || 0;
+    if (!goldRate && selectedBill.items) {
+      goldRate = getGoldRateFromItems(selectedBill.items);
+    }
+
+    const receiptData: ReceiptData = {
+      invoiceNumber: selectedBill.invoice_number,
+      customerName: selectedBill.customer_name || "Walk-in",
+      items: (selectedBill.items || []).map(item => ({
+        name: item.name,
+        qty: item.qty,
+        price: item.unit_price || item.price || 0,
+        weight: item.weight,
+        purity: item.purity,
+        making: item.making || 0,
+      })),
+      subtotal: selectedBill.subtotal || 0,
+      tax: selectedBill.tax || 0,
+      total: selectedBill.total || 0,
+      docType: selectedBill.doc_type === "estimate" ? "estimate" : "invoice",
+      goldRate: goldRate,
+      exchangeItems: selectedBill.exchange_items || [],
+      paymentBreakdown: {
+        cash: selectedBill.payment_method === "Cash" ? (selectedBill.paid_amount || selectedBill.total) : 0,
+        card: selectedBill.payment_method === "Card" ? (selectedBill.paid_amount || 0) : 0,
+        cheque: 0,
+        online: selectedBill.payment_method === "UPI" ? (selectedBill.paid_amount || 0) : 0,
+      },
+      netPayable: selectedBill.total,
+    };
+    printViaBrowser(receiptData);
   };
 
   const { data: sales = [], isLoading } = useQuery({
@@ -192,7 +240,6 @@ const Bills = () => {
   };
 
   const convertEstimateToInvoice = (estimate: Sale) => {
-    // Store estimate data in localStorage to pre-fill POS
     localStorage.setItem("convertEstimate", JSON.stringify(estimate));
     navigate("/pos?mode=convert");
   };
@@ -301,139 +348,83 @@ const Bills = () => {
         </Card>
       </div>
 
-      {/* Detail Dialog (same as before) */}
       <Dialog open={!!selectedBill} onOpenChange={() => setSelectedBill(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{selectedBill?.doc_type === "estimate" ? "Estimate" : "Invoice"} {selectedBill?.invoice_number}</DialogTitle></DialogHeader>
-          
+          {selectedBill && (
+            <div className="space-y-4">
+              <div ref={printRef}>
+                <div style={{ textAlign: "center", marginBottom: 16, borderBottom: "2px solid #c8a45a", paddingBottom: 10 }}>
+                  <h1 style={{ fontSize: 18, margin: 0, color: "#c8a45a" }}>
+                    {selectedBill.doc_type === "estimate" ? "ESTIMATE" : "INVOICE"}
+                  </h1>
+                  <p style={{ fontSize: 12 }}>{selectedBill.invoice_number}</p>
+                </div>
 
-           {selectedBill && (
-  <div className="space-y-4">
-    <div ref={printRef}>
-      <div style={{ textAlign: "center", marginBottom: 16, borderBottom: "2px solid #c8a45a", paddingBottom: 10 }}>
-        <h1 style={{ fontSize: 18, margin: 0, color: "#c8a45a" }}>
-          {selectedBill.doc_type === "estimate" ? "ESTIMATE" : "INVOICE"}
-        </h1>
-        <p style={{ fontSize: 12 }}>{selectedBill.invoice_number}</p>
-      </div>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Customer</span><span>{selectedBill.customer_name || "Walk-in"}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Date</span><span>{selectedBill.created_at ? format(new Date(selectedBill.created_at), "dd MMM yyyy, hh:mm a") : "—"}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Payment</span><span>{selectedBill.payment_method || "N/A"}</span></div>
+                  {(selectedBill.gold_rate || (selectedBill.items && getGoldRateFromItems(selectedBill.items) > 0)) && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Gold Rate</span>
+                      <span>₹{(selectedBill.gold_rate || getGoldRateFromItems(selectedBill.items))}/g</span>
+                    </div>
+                  )}
+                  {selectedBill.payment_status && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Payment Status</span>
+                      <Badge variant={selectedBill.payment_status === 'paid' ? 'default' : 'secondary'}>{selectedBill.payment_status}</Badge>
+                    </div>
+                  )}
+                </div>
 
-      <div className="space-y-1 text-sm">
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Customer</span>
-          <span>{selectedBill.customer_name || "Walk-in"}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Date</span>
-          <span>{selectedBill.created_at ? format(new Date(selectedBill.created_at), "dd MMM yyyy, hh:mm a") : "—"}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Payment</span>
-          <span>{selectedBill.payment_method || "N/A"}</span>
-        </div>
-        {selectedBill.gold_rate && (
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Gold Rate</span>
-            <span>₹{selectedBill.gold_rate}/g</span>
-          </div>
-        )}
-        {selectedBill.payment_status && (
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Payment Status</span>
-            <Badge variant={selectedBill.payment_status === 'paid' ? 'default' : 'secondary'}>
-              {selectedBill.payment_status}
-            </Badge>
-          </div>
-        )}
-      </div>
+                <table style={{ width: "100%", borderCollapse: "collapse", margin: "12px 0" }}>
+                  <thead><tr style={{ borderBottom: "2px solid #ddd" }}><th style={{ textAlign: "left", padding: "6px 4px" }}>Item</th><th style={{ textAlign: "center", padding: "6px 4px" }}>Qty</th><th style={{ textAlign: "right", padding: "6px 4px" }}>Amount</th></tr></thead>
+                  <tbody>
+                    {(Array.isArray(selectedBill.items) ? selectedBill.items : []).map((item, i) => (
+                      <tr key={i} style={{ borderBottom: "1px solid #eee" }}>
+                        <td style={{ padding: "6px 4px" }}>{item.name}</td>
+                        <td style={{ textAlign: "center", padding: "6px 4px" }}>{item.qty}</td>
+                        <td style={{ textAlign: "right", padding: "6px 4px" }}>₹{((item.unit_price || item.price || 0) * (item.qty || 1)).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
 
-      {/* Items Table */}
-      <table style={{ width: "100%", borderCollapse: "collapse", margin: "12px 0" }}>
-        <thead>
-          <tr style={{ borderBottom: "2px solid #ddd" }}>
-            <th style={{ textAlign: "left", padding: "6px 4px" }}>Item</th>
-            <th style={{ textAlign: "center", padding: "6px 4px" }}>Qty</th>
-            <th style={{ textAlign: "right", padding: "6px 4px" }}>Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(Array.isArray(selectedBill.items) ? selectedBill.items : []).map((item, i) => (
-            <tr key={i} style={{ borderBottom: "1px solid #eee" }}>
-              <td style={{ padding: "6px 4px" }}>{item.name}</td>
-              <td style={{ textAlign: "center", padding: "6px 4px" }}>{item.qty}</td>
-              <td style={{ textAlign: "right", padding: "6px 4px" }}>
-                ₹{((item.unit_price || item.price || 0) * (item.qty || 1)).toLocaleString()}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                {selectedBill.exchange_items && selectedBill.exchange_items.length > 0 && (
+                  <div className="border p-2 rounded-md bg-muted/20 my-2">
+                    <p className="text-xs font-semibold mb-1">💰 Old Jewellery Exchange</p>
+                    {selectedBill.exchange_items.map((ex, idx) => (
+                      <div key={idx} className="text-xs flex justify-between">
+                        <span>{ex.description} ({ex.weight}g, {ex.purity})</span>
+                        <span className="text-destructive">-₹{ex.value.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
-      {/* Exchange Items (if any) */}
-      {selectedBill.exchange_items && selectedBill.exchange_items.length > 0 && (
-        <div className="border p-2 rounded-md bg-muted/20 my-2">
-          <p className="text-xs font-semibold mb-1">💰 Old Jewellery Exchange</p>
-          {selectedBill.exchange_items.map((ex, idx) => (
-            <div key={idx} className="text-xs flex justify-between">
-              <span>{ex.description} ({ex.weight}g, {ex.purity})</span>
-              <span className="text-destructive">-₹{ex.value.toLocaleString()}</span>
+                <div className="border-t pt-3 space-y-1">
+                  <div className="flex justify-between"><span>Subtotal</span><span>₹{(selectedBill.subtotal || 0).toLocaleString()}</span></div>
+                  <div className="flex justify-between"><span>Tax (3%)</span><span>₹{(selectedBill.tax || 0).toLocaleString()}</span></div>
+                  {(selectedBill.discount || 0) > 0 && (<div className="flex justify-between"><span>Discount</span><span className="text-destructive">-₹{(selectedBill.discount || 0).toLocaleString()}</span></div>)}
+                  {selectedBill.pending_amount && selectedBill.pending_amount > 0 && (<div className="flex justify-between text-amber-600"><span>Pending</span><span>₹{selectedBill.pending_amount.toLocaleString()}</span></div>)}
+                  <div className="flex justify-between font-bold text-base pt-1 border-t"><span>Total</span><span className="text-primary">₹{(selectedBill.total || 0).toLocaleString()}</span></div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-2 border-t">
+                <Button variant="outline" size="sm" onClick={handlePrint}><Printer className="w-4 h-4 mr-1" />Print</Button>
+                <Button variant="outline" size="sm" className="text-green-600" onClick={() => handleWhatsAppShare(selectedBill)}><MessageCircle className="w-4 h-4 mr-1" />WhatsApp</Button>
+                <Button variant="outline" size="sm" onClick={() => handleExport(selectedBill)}><Download className="w-4 h-4 mr-1" />Export</Button>
+                <Button variant="outline" size="sm" className="text-blue-600" onClick={() => { setSelectedBill(null); startEditing(selectedBill); }}><Edit2 className="w-4 h-4 mr-1" />Edit</Button>
+                <Button variant="outline" size="sm" className="text-destructive" onClick={() => { setSelectedBill(null); setDeletingBill(selectedBill); }}><Trash2 className="w-4 h-4 mr-1" />Delete</Button>
+              </div>
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Totals */}
-      <div className="border-t pt-3 space-y-1">
-        <div className="flex justify-between">
-          <span>Subtotal</span>
-          <span>₹{(selectedBill.subtotal || 0).toLocaleString()}</span>
-        </div>
-        <div className="flex justify-between">
-          <span>Tax (3%)</span>
-          <span>₹{(selectedBill.tax || 0).toLocaleString()}</span>
-        </div>
-        {(selectedBill.discount || 0) > 0 && (
-          <div className="flex justify-between">
-            <span>Discount</span>
-            <span className="text-destructive">-₹{(selectedBill.discount || 0).toLocaleString()}</span>
-          </div>
-        )}
-        {selectedBill.pending_amount && selectedBill.pending_amount > 0 && (
-          <div className="flex justify-between text-amber-600">
-            <span>Pending</span>
-            <span>₹{selectedBill.pending_amount.toLocaleString()}</span>
-          </div>
-        )}
-        <div className="flex justify-between font-bold text-base pt-1 border-t">
-          <span>Total</span>
-          <span className="text-primary">₹{(selectedBill.total || 0).toLocaleString()}</span>
-        </div>
-      </div>
-    </div>
-
-    {/* Action Buttons */}
-    <div className="flex flex-wrap gap-2 pt-2 border-t">
-      <Button variant="outline" size="sm" onClick={handlePrint}>
-        <Printer className="w-4 h-4 mr-1" />Print
-      </Button>
-      <Button variant="outline" size="sm" className="text-green-600" onClick={() => handleWhatsAppShare(selectedBill)}>
-        <MessageCircle className="w-4 h-4 mr-1" />WhatsApp
-      </Button>
-      <Button variant="outline" size="sm" onClick={() => handleExport(selectedBill)}>
-        <Download className="w-4 h-4 mr-1" />Export
-      </Button>
-      <Button variant="outline" size="sm" className="text-blue-600" onClick={() => { setSelectedBill(null); startEditing(selectedBill); }}>
-        <Edit2 className="w-4 h-4 mr-1" />Edit
-      </Button>
-      <Button variant="outline" size="sm" className="text-destructive" onClick={() => { setSelectedBill(null); setDeletingBill(selectedBill); }}>
-        <Trash2 className="w-4 h-4 mr-1" />Delete
-      </Button>
-    </div>
-  </div>
-)}
+          )}
         </DialogContent>
       </Dialog>
 
-      {/* Edit and Delete dialogs (unchanged from original) */}
       <Dialog open={!!editingBill} onOpenChange={() => setEditingBill(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Edit {editingBill?.doc_type === "estimate" ? "Estimate" : "Bill"} — {editingBill?.invoice_number}</DialogTitle></DialogHeader>

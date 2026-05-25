@@ -217,20 +217,20 @@ const Index = () => {
             ))}
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-6 mb-6">
-            <div className="xl:col-span-2">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-6">
+            <div className="lg:col-span-2">
               <SalesChart sales={sales} />
             </div>
             <MetalPriceCard />
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6 mb-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-6">
             <BusinessHealth sales={sales} products={products} customers={customers} investments={investments} />
             <CustomerInsights customers={customers} sales={sales} />
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-6">
-            <div className="xl:col-span-2">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+            <div className="lg:col-span-2">
               <RecentTransactions sales={sales} />
             </div>
             <div className="space-y-4 sm:space-y-6">

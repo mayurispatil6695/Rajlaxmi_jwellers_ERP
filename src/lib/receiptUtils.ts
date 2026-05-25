@@ -33,6 +33,9 @@ export const generateReceiptHTML = (saleData: ReceiptData, docTitle: string) => 
     <html>
     <head><title>${docTitle}</title>
     <style>
+      @media print {
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      }
       body { font-family: 'Arial', sans-serif; width: 380px; margin: 0 auto; padding: 16px; }
       .header { text-align: center; border-bottom: 2px solid #c8a45a; margin-bottom: 16px; }
       .header h1 { margin: 0; color: #c8a45a; font-size: 20px; }
@@ -50,29 +53,35 @@ export const generateReceiptHTML = (saleData: ReceiptData, docTitle: string) => 
     </style>
     </head>
     <body>
-      <div class="header"><h1>Rajlakshmi  JEWELLERS</h1><p>${today}</p></div>
+      <div class="header"><h1>Rajlakshmi JEWELLERS</h1><p>${today}</p></div>
       <div class="details">
         <span><strong>${title}:</strong> ${saleData.invoiceNumber}</span>
         <span><strong>Gold Rate:</strong> ${goldRateDisplay}</span>
       </div>
       <div class="details"><span><strong>Customer:</strong> ${saleData.customerName || 'Walk-in Customer'}</span></div>
       <table class="items">
-        <thead><tr><th>Particulars</th><th>Pcs</th><th>Wt(g)</th><th>Making</th><th class="right">Amount</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Particulars</th><th>Pcs</th><th>Wt(g)</th><th>Making</th><th class="right">Amount</th>
+          </tr>
+        </thead>
         <tbody>
           ${saleData.items.map(item => {
             const weight = item.weight || (item.price / (saleData.goldRate || 5000)).toFixed(2);
             const making = item.making || 0;
             const amount = item.price * item.qty;
-            return `<tr>
-              <td>${item.name} ${item.purity ? `(${item.purity})` : ''}</td>
-              <td>${item.qty}</td>
-              <td>${typeof weight === 'number' ? weight.toFixed(2) : weight}</td>
-              <td>₹${making.toLocaleString()}</td>
-              <td class="right">₹${amount.toLocaleString()}</td>
-            </tr>`;
+            return `
+              <tr>
+                <td>${item.name} ${item.purity ? `(${item.purity})` : ''}</td>
+                <td style="text-align:center">${item.qty}</td>
+                <td style="text-align:center">${typeof weight === 'number' ? weight.toFixed(2) : weight}</td>
+                <td style="text-align:center">₹${making.toLocaleString()}</td>
+                <td class="right">₹${amount.toLocaleString()}</td>
+              </tr>
+            `;
           }).join('')}
         </tbody>
-       </table>
+      </table>
       ${exchangeTotal > 0 ? `
         <div class="exchange-box">
           <strong>EXCHANGE METAL</strong>
@@ -112,6 +121,7 @@ export const printViaBrowser = (saleData: ReceiptData) => {
   }
   printWindow.document.write(printContent);
   printWindow.document.close();
+  printWindow.document.title = pdfTitle;
   printWindow.focus();
   printWindow.print();
 };
