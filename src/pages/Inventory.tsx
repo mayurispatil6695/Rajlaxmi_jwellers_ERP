@@ -67,7 +67,8 @@ const Inventory = () => {
   const [bulkFile, setBulkFile] = useState<File | null>(null);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkResults, setBulkResults] = useState<{ success: number; failed: number }>({ success: 0, failed: 0 });
-  
+  const [customCategory, setCustomCategory] = useState("");
+const [isCustomCategory, setIsCustomCategory] = useState(false);
   const queryClient = useQueryClient();
   const { getAll, addItem, updateItem, deleteItem } = useUserData();
   const { createNotification } = useNotifications();
@@ -132,46 +133,43 @@ const Inventory = () => {
         try {
           // Extract values with fallbacks
           const name = row["Product Name"] || row.name;
-          const sku = row["SKU"] || row.sku;
-          const category = row["Category"] || row.category;
-          const metal_type = row["Metal Type"] || row.metal_type;
-          const weight = typeof (row["Weight (g)]"] ?? row.weight) === "number"
-            ? (row["Weight (g)"] ?? row.weight) as number
-            : parseFloat(String(row["Weight (g)"] ?? row.weight ?? ""));
-          const stock = typeof (row.Stock ?? row.stock) === "number"
-            ? (row.Stock ?? row.stock) as number
-            : parseInt(String(row.Stock ?? row.stock ?? ""), 10);
-          const unit_price = typeof (row["Selling Price"] ?? row.unit_price) === "number"
-            ? (row["Selling Price"] ?? row.unit_price) as number
-            : parseFloat(String(row["Selling Price"] ?? row.unit_price ?? ""));
-          const purchase_price = typeof (row["Cost Price"] ?? row.purchase_price) === "number"
-            ? (row["Cost Price"] ?? row.purchase_price) as number
-            : parseFloat(String(row["Cost Price"] ?? row.purchase_price ?? ""));
+const sku = row["SKU"] || row.sku;
+const category = row["Category"] || row.category;
+const metal_type = row["Metal Type"] || row.metal_type;
+const weight = parseFloat(String(row["Weight (g)"] ?? row.weight ?? ""));
+const stock = parseInt(String(row.Stock ?? row.stock ?? ""), 10);
+const unit_price_raw = row["Selling Price"] ?? row.unit_price;
+const unit_price = typeof unit_price_raw === "number" ? unit_price_raw : parseFloat(String(unit_price_raw ?? "0"));
+const purchase_price_raw = row["Cost Price"] ?? row.purchase_price;
+const purchase_price = typeof purchase_price_raw === "number" ? purchase_price_raw : parseFloat(String(purchase_price_raw ?? "0"));
 
-          if (!name || !sku || isNaN(weight) || isNaN(stock) || isNaN(unit_price)) {
-            failed++;
-            continue;
-          }
+          if (!name || isNaN(weight) || weight <= 0 || isNaN(stock) || stock < 0) {
+  failed++;
+  continue;
+}
 
-          const barcode = generateBarcode(metal_type);
-          const metalPrefix = metal_type?.replace(/\s/g, "").substring(0, 3).toUpperCase() || "GEN";
-          const finalSku = sku || `${metalPrefix}-${Date.now().toString(36).toUpperCase()}`;
-          const status = stock === 0 ? "Out of Stock" : stock <= 5 ? "Low Stock" : "In Stock";
-          const isImitation = metal_type === "Imitation";
+         const barcode = generateBarcode(metal_type);
+const metalPrefix = metal_type?.replace(/\s/g, "").substring(0, 3).toUpperCase() || "GEN";
+const finalSku = sku || `${metalPrefix}-${Date.now().toString(36).toUpperCase()}`;
+const status = stock === 0 ? "Out of Stock" : stock <= 5 ? "Low Stock" : "In Stock";
+const isImitation = metal_type === "Imitation";
+
+const finalUnitPrice = isNaN(unit_price) ? 0 : unit_price;
+const finalPurchasePrice = isImitation ? purchase_price : 0;
 
           await addItem("products", {
-            sku: finalSku,
-            barcode,
-            name,
-            category: category || "Other",
-            metal_type: metal_type || "Gold 22K",
-            weight,
-            stock,
-            purchase_price: isImitation ? purchase_price : 0,
-            unit_price,
-            status,
-          });
-          success++;
+  sku: finalSku,
+  barcode,
+  name,
+  category: category || "Other",
+  metal_type: metal_type || "Gold 22K",
+  weight,
+  stock,
+  purchase_price: finalPurchasePrice,
+  unit_price: finalUnitPrice,
+  status,
+});
+success++;
         } catch (err) {
           console.error("Bulk upload row error", err);
           failed++;
@@ -282,22 +280,31 @@ const Inventory = () => {
   };
 
   const openEdit = (product: Product) => {
-    setEditProduct(product);
-    setFormData({
-      name: product.name,
-      category: product.category,
-      metal_type: product.metal_type,
-      weight: String(product.weight),
-      stock: String(product.stock),
-      purchase_price: String(product.purchase_price || ""),
-      unit_price: String(product.unit_price),
-    });
-  };
-
+  setEditProduct(product);
+  setFormData({
+    name: product.name,
+    category: product.category,
+    metal_type: product.metal_type,
+    weight: String(product.weight),
+    stock: String(product.stock),
+    purchase_price: String(product.purchase_price || ""),
+    unit_price: String(product.unit_price),
+  });
+ const predefinedCategories = ["Necklace", "Ring", "Bangle", "Earring", "Pendant", "Anklet", "Chain", "Bracelet", "Set"];
+  if (!predefinedCategories.includes(product.category)) {
+    setIsCustomCategory(true);
+    setCustomCategory(product.category);
+  } else {
+    setIsCustomCategory(false);
+    setCustomCategory("");
+  }
+};
   const closeForm = () => {
     setIsDialogOpen(false);
     setEditProduct(null);
     setFormData(emptyForm);
+    setIsCustomCategory(false);
+setCustomCategory("");
   };
 
   const filteredProducts = products.filter((p) => {
@@ -350,9 +357,15 @@ const filteredStats = useMemo(() => {
             <Button variant="outline" onClick={() => setBulkOpen(true)}>
               <Upload className="w-4 h-4 mr-2" /> Bulk Upload
             </Button>
-            <Button variant="gold" onClick={() => { setFormData(emptyForm); setEditProduct(null); setIsDialogOpen(true); }}>
-              <Plus className="w-4 h-4 mr-2" />Add Product
-            </Button>
+           <Button variant="gold" onClick={() => { 
+  setFormData(emptyForm); 
+  setEditProduct(null); 
+  setIsDialogOpen(true);
+  setIsCustomCategory(false);
+  setCustomCategory("");
+}}>
+  <Plus className="w-4 h-4 mr-2" />Add Product
+</Button>
           </div>
         </div>
       </div>
@@ -533,7 +546,46 @@ const filteredStats = useMemo(() => {
               <div className="space-y-2"><Label htmlFor="name">Product Name</Label><Input id="name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="Gold Necklace" required /></div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2"><Label>Category</Label><Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Necklace">Necklace</SelectItem><SelectItem value="Ring">Ring</SelectItem><SelectItem value="Bangle">Bangle</SelectItem><SelectItem value="Earring">Earring</SelectItem><SelectItem value="Pendant">Pendant</SelectItem><SelectItem value="Anklet">Anklet</SelectItem><SelectItem value="Chain">Chain</SelectItem><SelectItem value="Bracelet">Bracelet</SelectItem><SelectItem value="Set">Set</SelectItem></SelectContent></Select></div>
+            <div className="space-y-2">
+  <Label>Category</Label>
+  <Select 
+    value={formData.category} 
+    onValueChange={(v) => {
+      if (v === "custom") {
+        setIsCustomCategory(true);
+        setFormData({ ...formData, category: customCategory || "" });
+      } else {
+        setIsCustomCategory(false);
+        setFormData({ ...formData, category: v });
+      }
+    }}
+  >
+    <SelectTrigger><SelectValue /></SelectTrigger>
+    <SelectContent>
+      <SelectItem value="Necklace">Necklace</SelectItem>
+      <SelectItem value="Ring">Ring</SelectItem>
+      <SelectItem value="Bangle">Bangle</SelectItem>
+      <SelectItem value="Earring">Earring</SelectItem>
+      <SelectItem value="Pendant">Pendant</SelectItem>
+      <SelectItem value="Anklet">Anklet</SelectItem>
+      <SelectItem value="Chain">Chain</SelectItem>
+      <SelectItem value="Bracelet">Bracelet</SelectItem>
+      <SelectItem value="Set">Set</SelectItem>
+      <SelectItem value="custom">+ Custom (type below)</SelectItem>
+    </SelectContent>
+  </Select>
+  {isCustomCategory && (
+    <Input
+      placeholder="Enter custom category name"
+      value={customCategory}
+      onChange={(e) => {
+        setCustomCategory(e.target.value);
+        setFormData({ ...formData, category: e.target.value });
+      }}
+      className="mt-1"
+    />
+  )}
+</div>
               <div className="space-y-2"><Label htmlFor="weight">Weight (g)</Label><Input id="weight" type="number" step="0.01" value={formData.weight} onChange={(e) => setFormData({ ...formData, weight: e.target.value })} placeholder="45.5" required /></div>
             </div>
             <div className="grid grid-cols-2 gap-4">
