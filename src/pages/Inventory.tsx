@@ -142,8 +142,16 @@ const unit_price_raw = row["Selling Price"] ?? row.unit_price;
 const unit_price = typeof unit_price_raw === "number" ? unit_price_raw : parseFloat(String(unit_price_raw ?? "0"));
 const purchase_price_raw = row["Cost Price"] ?? row.purchase_price;
 const purchase_price = typeof purchase_price_raw === "number" ? purchase_price_raw : parseFloat(String(purchase_price_raw ?? "0"));
+const isImitation = metal_type?.toLowerCase() === "imitation";
 
-          if (!name || isNaN(weight) || weight <= 0 || isNaN(stock) || stock < 0) {
+// Validation: name and stock are mandatory
+if (!name || isNaN(stock) || stock < 0) {
+  failed++;
+  continue;
+}
+// Weight: must be >0 for precious metals; for imitation, 0 is allowed
+const finalWeight = isNaN(weight) ? 0 : weight;
+if (!isImitation && finalWeight <= 0) {
   failed++;
   continue;
 }
@@ -152,8 +160,6 @@ const purchase_price = typeof purchase_price_raw === "number" ? purchase_price_r
 const metalPrefix = metal_type?.replace(/\s/g, "").substring(0, 3).toUpperCase() || "GEN";
 const finalSku = sku || `${metalPrefix}-${Date.now().toString(36).toUpperCase()}`;
 const status = stock === 0 ? "Out of Stock" : stock <= 5 ? "Low Stock" : "In Stock";
-const isImitation = metal_type === "Imitation";
-
 const finalUnitPrice = isNaN(unit_price) ? 0 : unit_price;
 const finalPurchasePrice = isImitation ? purchase_price : 0;
 
@@ -163,7 +169,7 @@ const finalPurchasePrice = isImitation ? purchase_price : 0;
   name,
   category: category || "Other",
   metal_type: metal_type || "Gold 22K",
-  weight,
+  weight: finalWeight,
   stock,
   purchase_price: finalPurchasePrice,
   unit_price: finalUnitPrice,
@@ -245,7 +251,14 @@ success++;
     const stock = parseInt(formData.stock, 10);
     const status = stock === 0 ? "Out of Stock" : stock <= 5 ? "Low Stock" : "In Stock";
     const isImitation = formData.metal_type === "Imitation";
-
+let weight = parseFloat(formData.weight);
+if (isImitation && isNaN(weight)) {
+  weight = 0; // default for imitation
+}
+if (!isImitation && (isNaN(weight) || weight <= 0)) {
+  toast.error("Weight is required for precious metals");
+  return;
+}
     if (editProduct) {
       updateProductMutation.mutate({
         id: editProduct.id,
@@ -253,7 +266,7 @@ success++;
           name: formData.name,
           category: formData.category,
           metal_type: formData.metal_type,
-          weight: parseFloat(formData.weight),
+          weight: weight,
           stock,
           purchase_price: isImitation ? parseFloat(formData.purchase_price) : 0,
           unit_price: isImitation ? parseFloat(formData.unit_price) : 0,
@@ -270,7 +283,7 @@ success++;
         name: formData.name,
         category: formData.category,
         metal_type: formData.metal_type,
-        weight: parseFloat(formData.weight),
+        weight: weight,
         stock,
         purchase_price: isImitation ? parseFloat(formData.purchase_price) : 0,
         unit_price: isImitation ? parseFloat(formData.unit_price) : 0,
@@ -586,7 +599,9 @@ const filteredStats = useMemo(() => {
     />
   )}
 </div>
-              <div className="space-y-2"><Label htmlFor="weight">Weight (g)</Label><Input id="weight" type="number" step="0.01" value={formData.weight} onChange={(e) => setFormData({ ...formData, weight: e.target.value })} placeholder="45.5" required /></div>
+              <div className="space-y-2"><Label htmlFor="weight">
+  Weight (g) {formData.metal_type === "Imitation" ? "(optional)" : "*"}
+</Label><Input id="weight" type="number" step="0.01" value={formData.weight} onChange={(e) => setFormData({ ...formData, weight: e.target.value })} placeholder="45.5" required /></div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2"><Label htmlFor="stock">Stock</Label><Input id="stock" type="number" value={formData.stock} onChange={(e) => setFormData({ ...formData, stock: e.target.value })} placeholder="10" required /></div>
