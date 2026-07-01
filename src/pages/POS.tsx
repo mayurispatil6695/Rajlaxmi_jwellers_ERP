@@ -145,32 +145,32 @@ const POS = () => {
   });
 
   // Inside POS component (add after the products query)
-useEffect(() => {
-  const scansRef = ref(db, 'pending_scans');
-  const unsubscribe = onChildAdded(scansRef, async (snapshot) => {
-    const scan = snapshot.val();
-    if (scan && scan.barcode) {
-      // Find product
-      const product = products.find(
-        (p) => p.barcode === scan.barcode || p.sku === scan.barcode
-      );
-      if (product) {
-        if (isGoldProduct(product)) {
-          sendToCalculator(product);
-          toast.success(`📱 Scanned: ${product.name} → Calculator`);
+  useEffect(() => {
+    const scansRef = ref(db, 'pending_scans');
+    const unsubscribe = onChildAdded(scansRef, async (snapshot) => {
+      const scan = snapshot.val();
+      if (scan && scan.barcode) {
+        // Find product
+        const product = products.find(
+          (p) => p.barcode === scan.barcode || p.sku === scan.barcode
+        );
+        if (product) {
+          if (isGoldProduct(product)) {
+            sendToCalculator(product);
+            toast.success(`📱 Scanned: ${product.name} → Calculator`);
+          } else {
+            addToCart(product);
+            toast.success(`📱 Scanned: ${product.name} → Added to Bill`);
+          }
         } else {
-          addToCart(product);
-          toast.success(`📱 Scanned: ${product.name} → Added to Bill`);
+          toast.error(`Product not found: ${scan.barcode}`);
         }
-      } else {
-        toast.error(`Product not found: ${scan.barcode}`);
+        // Remove the processed scan
+        await remove(ref(db, `pending_scans/${snapshot.key}`));
       }
-      // Remove the processed scan
-      await remove(ref(db, `pending_scans/${snapshot.key}`));
-    }
-  });
-  return () => unsubscribe();
-}, [products]); // re-run when products list changes
+    });
+    return () => unsubscribe();
+  }, [products]); // re-run when products list changes
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ctrl + N → New Sale (reset cart, clear customer)
@@ -242,38 +242,66 @@ useEffect(() => {
     );
     if (!product) { toast.error(`Product not found: ${code}`); return; }
     if (needsCalculator(product)) {
-  sendToCalculator(product);
-  toast.success(`🔊 Scanned: ${product.name} → Calculator`, { position: 'top-right' });
-} else {
-  addToCart(product);
-  toast.success(`🔊 Scanned: ${product.name} → Added to Bill`, { duration: 1000, position: 'top-right' });
-}
+      sendToCalculator(product);
+      toast.success(`🔊 Scanned: ${product.name} → Calculator`, { position: 'top-right' });
+    } else {
+      addToCart(product);
+      toast.success(`🔊 Scanned: ${product.name} → Added to Bill`, { duration: 1000, position: 'top-right' });
+    }
     setSearchQuery("");
   }, [products, cart]);
 
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && searchQuery.trim().length >= 3) {
-      const product = products.find(
-        (p) => p.barcode?.toLowerCase() === searchQuery.trim().toLowerCase() || p.sku?.toLowerCase() === searchQuery.trim().toLowerCase()
-      );
-      if (product) {
-  e.preventDefault();
-  if (needsCalculator(product)) sendToCalculator(product);
-  else addToCart(product);
-  setSearchQuery("");
-  return;
-}
+    if (e.key !== "Enter") return;
+    const query = searchQuery.trim();
+    if (!query) {
+      toast.info("Please enter a product name or barcode", { position: 'top-right' });
+      return;
+    }
+
+    e.preventDefault();
+
+    console.log("🔍 Searching for:", query);
+    console.log("📦 Products in POS:", products.map(p => ({ name: p.name, barcode: p.barcode, sku: p.sku, stock: p.stock })));
+
+    // 1. Exact match on barcode or SKU
+    let product = products.find(
+      (p) => p.barcode?.toLowerCase() === query.toLowerCase() ||
+        p.sku?.toLowerCase() === query.toLowerCase()
+    );
+    console.log("🎯 Exact match?", product ? product.name : "none");
+
+    // 2. Partial match
+    if (!product) {
       const filtered = products.filter(
-        (p) => p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.sku.toLowerCase().includes(searchQuery.toLowerCase()) || p.barcode?.toLowerCase().includes(searchQuery.toLowerCase())
+        (p) => p.name.toLowerCase().includes(query.toLowerCase()) ||
+          p.sku.toLowerCase().includes(query.toLowerCase()) ||
+          (p.barcode && p.barcode.toLowerCase().includes(query.toLowerCase()))
       );
+      console.log("🔍 Partial matches:", filtered.length, filtered.map(p => p.name));
       if (filtered.length === 1) {
-  if (needsCalculator(filtered[0])) sendToCalculator(filtered[0]);
-  else addToCart(filtered[0]);
-  setSearchQuery("");
-}
+        product = filtered[0];
+      } else if (filtered.length > 1) {
+        toast.info(`Multiple products (${filtered.length}) match. Please be more specific.`, { position: 'top-right' });
+        return;
+      } else {
+        toast.error(`No product found for "${query}"`, { position: 'top-right' });
+        return;
+      }
+    }
+
+    if (product) {
+      console.log("✅ Adding product:", product.name);
+      if (needsCalculator(product)) {
+        sendToCalculator(product);
+        toast.success(`🔊 ${product.name} → Calculator`, { position: 'top-right' });
+      } else {
+        addToCart(product);
+        toast.success(`🔊 ${product.name} → Added to Bill`, { duration: 1000, position: 'top-right' });
+      }
+      setSearchQuery("");
     }
   };
-
   const hasImitationItems = cart.some((item) => {
     const name = (item.name || "").toLowerCase();
     const metal = (item.metal_type || "").toLowerCase();
@@ -689,17 +717,17 @@ useEffect(() => {
       const invoiceNumber = `INV-${Date.now()}`;
       await addItem("sales", {
         invoice_number: invoiceNumber,
-items: cart.map(item => ({ 
-  product_id: item.id, 
-  name: item.name, 
-  qty: item.qty, 
-  price: item.unit_price, 
-  calculated: item.calculatedPrice || false, 
-  purity: item.purity || null, 
-  metal_type: item.metal_type || null,
-  weight: item.weight || 0,
-  making: (item.calculatedPrice ? (item.unit_price - (goldRate || 0) * item.weight) : 0) // approximate making
-})),
+        items: cart.map(item => ({
+          product_id: item.id,
+          name: item.name,
+          qty: item.qty,
+          price: item.unit_price,
+          calculated: item.calculatedPrice || false,
+          purity: item.purity || null,
+          metal_type: item.metal_type || null,
+          weight: item.weight || 0,
+          making: (item.calculatedPrice ? (item.unit_price - (goldRate || 0) * item.weight) : 0) // approximate making
+        })),
         subtotal, tax, discount: totalDiscount, total,
         payment_method: paymentMethod,
         status: "Completed",
@@ -871,7 +899,9 @@ items: cart.map(item => ({
             <CardContent>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input ref={scanInputRef} placeholder="Scan barcode or type product name..." className="pl-10" />
+                <Input ref={scanInputRef} placeholder="Scan barcode or type product name..." className="pl-10" value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={handleSearchKeyDown} />
               </div>
               <div className="mt-2">
                 <CameraScanner onScan={handleBarcodeScan} />
@@ -890,43 +920,43 @@ items: cart.map(item => ({
                       {filteredProducts.slice(0, 50).map(product => {
                         const gold = isGoldProduct(product), imitation = isImitationProduct(product);
                         return (
-                          <TableRow 
-  key={product.id} 
-  className="cursor-pointer hover:bg-muted/50" 
-  onClick={() => needsCalculator(product) ? sendToCalculator(product) : addToCart(product)}
->
-  {/* Product name cell – keep as is */}
-  <TableCell className="py-2">
-    <div className="flex items-center gap-2">
-      {needsCalculator(product) && <Gem className="w-3.5 h-3.5 text-primary shrink-0" />}
-      {isImitationProduct(product) && <Sparkles className="w-3.5 h-3.5 text-purple-500 shrink-0" />}
-      <span className="text-sm font-medium">{product.name}</span>
-    </div>
-  </TableCell>
-  {/* SKU, Type, Stock, Price cells – unchanged */}
-  <TableCell className="py-2 text-xs font-mono text-muted-foreground">{product.sku}</TableCell>
-  <TableCell className="py-2 text-xs text-center">
-    {isImitationProduct(product) ? 
-      <Badge className="bg-purple-500/20 text-purple-600 border-purple-500/30 text-[9px]">Imitation</Badge> : 
-      <Badge variant="outline" className="text-[9px] px-1 py-0 border-primary/30 text-primary">{product.metal_type}</Badge>
-    }
-  </TableCell>
-  <TableCell className="py-2 text-xs text-center">
-    <Badge variant={product.stock <= 3 ? "destructive" : "secondary"} className="text-[10px]">{product.stock}</Badge>
-  </TableCell>
-  <TableCell className="py-2 text-sm font-semibold text-primary text-right">₹{product.unit_price.toLocaleString()}</TableCell>
-  <TableCell className="py-2 text-right">
-    {needsCalculator(product) ? (
-      <Button variant="gold" size="sm" className="h-6 text-[10px] px-2" onClick={() => sendToCalculator(product)}>
-        <Calculator className="w-3 h-3 mr-1" />Calc
-      </Button>
-    ) : (
-      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => addToCart(product)}>
-        <Plus className="w-3 h-3 mr-1" />Add
-      </Button>
-    )}
-  </TableCell>
-</TableRow>
+                          <TableRow
+                            key={product.id}
+                            className="cursor-pointer hover:bg-muted/50"
+                            onClick={() => needsCalculator(product) ? sendToCalculator(product) : addToCart(product)}
+                          >
+                            {/* Product name cell – keep as is */}
+                            <TableCell className="py-2">
+                              <div className="flex items-center gap-2">
+                                {needsCalculator(product) && <Gem className="w-3.5 h-3.5 text-primary shrink-0" />}
+                                {isImitationProduct(product) && <Sparkles className="w-3.5 h-3.5 text-purple-500 shrink-0" />}
+                                <span className="text-sm font-medium">{product.name}</span>
+                              </div>
+                            </TableCell>
+                            {/* SKU, Type, Stock, Price cells – unchanged */}
+                            <TableCell className="py-2 text-xs font-mono text-muted-foreground">{product.sku}</TableCell>
+                            <TableCell className="py-2 text-xs text-center">
+                              {isImitationProduct(product) ?
+                                <Badge className="bg-purple-500/20 text-purple-600 border-purple-500/30 text-[9px]">Imitation</Badge> :
+                                <Badge variant="outline" className="text-[9px] px-1 py-0 border-primary/30 text-primary">{product.metal_type}</Badge>
+                              }
+                            </TableCell>
+                            <TableCell className="py-2 text-xs text-center">
+                              <Badge variant={product.stock <= 3 ? "destructive" : "secondary"} className="text-[10px]">{product.stock}</Badge>
+                            </TableCell>
+                            <TableCell className="py-2 text-sm font-semibold text-primary text-right">₹{product.unit_price.toLocaleString()}</TableCell>
+                            <TableCell className="py-2 text-right">
+                              {needsCalculator(product) ? (
+                                <Button variant="gold" size="sm" className="h-6 text-[10px] px-2" onClick={() => sendToCalculator(product)}>
+                                  <Calculator className="w-3 h-3 mr-1" />Calc
+                                </Button>
+                              ) : (
+                                <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => addToCart(product)}>
+                                  <Plus className="w-3 h-3 mr-1" />Add
+                                </Button>
+                              )}
+                            </TableCell>
+                          </TableRow>
                         );
                       })}
                     </TableBody>
