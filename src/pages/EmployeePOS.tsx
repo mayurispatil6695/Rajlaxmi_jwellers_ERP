@@ -29,6 +29,7 @@ interface Product {
   unit_price: number;
   stock: number;
   status: string;
+   hsn_code?: string;   // add this
 }
 
 interface CartItem {
@@ -41,6 +42,8 @@ interface CartItem {
   sku: string;
   calculatedPrice?: boolean;
   purity?: string;
+   hsn_code?: string;   // add this
+  mrp?: number;        // add this if you have MRP
 }
 
 const isGoldProduct = (p: Product) => p.metal_type?.toLowerCase().includes("gold");

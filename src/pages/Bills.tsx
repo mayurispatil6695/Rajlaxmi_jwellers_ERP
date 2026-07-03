@@ -48,6 +48,8 @@ interface Sale {
   doc_type?: "estimate" | "invoice";
   exchange_items?: ExchangeItem[];
   gold_rate?: number;
+  customer_address?: string;   // add
+  customer_gstin?: string;     // add
 }
 
 function isImitationSale(sale: Sale & { is_imitation_bill?: boolean }): boolean {
@@ -155,41 +157,45 @@ const Bills = () => {
     return 0;
   };
 
-  const handlePrint = () => {
-    if (!selectedBill) return;
+const handlePrint = () => {
+  if (!selectedBill) return;
 
-    let goldRate = selectedBill.gold_rate || 0;
-    if (!goldRate && selectedBill.items) {
-      goldRate = getGoldRateFromItems(selectedBill.items);
-    }
+  let goldRate = selectedBill.gold_rate || 0;
+  if (!goldRate && selectedBill.items) {
+    goldRate = getGoldRateFromItems(selectedBill.items);
+  }
 
-    const receiptData: ReceiptData = {
-      invoiceNumber: selectedBill.invoice_number,
-      customerName: selectedBill.customer_name || "Walk-in",
-      items: (selectedBill.items || []).map(item => ({
-        name: item.name,
-        qty: item.qty,
-        price: item.unit_price || item.price || 0,
-        weight: item.weight,
-        purity: item.purity,
-        making: item.making || 0,
-      })),
-      subtotal: selectedBill.subtotal || 0,
-      tax: selectedBill.tax || 0,
-      total: selectedBill.total || 0,
-      docType: selectedBill.doc_type === "estimate" ? "estimate" : "invoice",
-      goldRate: goldRate,
-      exchangeItems: selectedBill.exchange_items || [],
-      paymentBreakdown: {
-        cash: selectedBill.payment_method === "Cash" ? (selectedBill.paid_amount || selectedBill.total) : 0,
-        card: selectedBill.payment_method === "Card" ? (selectedBill.paid_amount || 0) : 0,
-        cheque: 0,
-        online: selectedBill.payment_method === "UPI" ? (selectedBill.paid_amount || 0) : 0,
-      },
-      netPayable: selectedBill.total,
-    };
-    printViaBrowser(receiptData);
+  const receiptData: ReceiptData = {
+    invoiceNumber: selectedBill.invoice_number,
+    customerName: selectedBill.customer_name || "Walk-in",
+    customerPhone: selectedBill.customer_phone || undefined,
+    customerAddress: selectedBill.customer_address || undefined,   // NEW
+    customerGstin: selectedBill.customer_gstin || undefined,       // NEW
+    items: (selectedBill.items || []).map(item => ({
+      name: item.name,
+      qty: item.qty,
+      price: item.unit_price || item.price || 0,
+      weight: item.weight,
+      purity: item.purity,
+      making: item.making || 0,
+    })),
+    subtotal: selectedBill.subtotal || 0,
+    tax: selectedBill.tax || 0,
+    total: selectedBill.total || 0,
+    docType: selectedBill.doc_type === "estimate" ? "estimate" : "invoice",
+    goldRate: goldRate,
+    exchangeItems: selectedBill.exchange_items || [],
+    paymentBreakdown: {
+      cash: selectedBill.payment_method === "Cash" ? (selectedBill.paid_amount || selectedBill.total) : 0,
+      card: selectedBill.payment_method === "Card" ? (selectedBill.paid_amount || 0) : 0,
+      cheque: 0,
+      online: selectedBill.payment_method === "UPI" ? (selectedBill.paid_amount || 0) : 0,
+    },
+    netPayable: selectedBill.total,
+    gstEnabled: selectedBill.doc_type !== "estimate",
   };
+  printViaBrowser(receiptData);
+};
 
   const { data: sales = [], isLoading } = useQuery({
     queryKey: ["bills"],

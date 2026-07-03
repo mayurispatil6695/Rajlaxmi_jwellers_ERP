@@ -29,6 +29,11 @@ import ReceiptPrinterEncoder from '@point-of-sale/receipt-printer-encoder';
 import { CameraScanner } from "@/components/pos/CameraScanner";
 import { ref, onChildAdded, remove } from "firebase/database";
 import { db } from "@/lib/firebase";
+// Single shared source of truth for invoice/estimate HTML + browser print.
+// (Previously this file had its own copies of generateReceiptHTML / printViaBrowser —
+// those are now removed in favor of the shared version also used by Bills.tsx,
+// so both screens always render an identical, GST-compliant layout.)
+import { printViaBrowser, SHOP_CONFIG, type ReceiptData } from "@/lib/receiptUtils";
 
 
 interface Product {
@@ -43,6 +48,7 @@ interface Product {
   unit_price: number;
   stock: number;
   status: string;
+  hsn_code?: string;
 }
 interface PrintData {
   invoice_number: string;
@@ -64,6 +70,8 @@ interface CartItem {
   calculatedPrice?: boolean;
   purity?: string;
   metal_type?: string;
+  hsn_code?: string;
+  mrp?: number;
 }
 
 interface CustomerRecord {
@@ -72,6 +80,8 @@ interface CustomerRecord {
   phone: string;
   email: string | null;
   date_of_birth?: string | null;
+  address?: string | null;
+  gstin?: string | null;
   loyalty_points: number;
   total_purchases: number;
 }
@@ -116,6 +126,7 @@ const POS = () => {
   const [newCustomerEmail, setNewCustomerEmail] = useState("");
   const [newCustomerDob, setNewCustomerDob] = useState("");
   const [newCustomerAddress, setNewCustomerAddress] = useState("");
+  const [newCustomerGstin, setNewCustomerGstin] = useState("");
   const [imitationDiscountType, setImitationDiscountType] = useState<"percent" | "flat">("percent");
   const [imitationDiscountValue, setImitationDiscountValue] = useState(0);
   const [exchangeItems, setExchangeItems] = useState<ExchangeItem[]>([]);
@@ -124,6 +135,7 @@ const POS = () => {
   const [invoiceGstEnabled, setInvoiceGstEnabled] = useState<boolean>(true);
   const [lastPrintData, setLastPrintData] = useState<PrintData | null>(null);
   const [goldRate, setGoldRate] = useState<number>(0);
+  const [salesman, setSalesman] = useState<string>("");
   const gstEnabled = docType === "estimate" ? false : invoiceGstEnabled;
   const scanInputRef = useRef<HTMLInputElement>(null);
   const scanBufferRef = useRef("");
@@ -261,15 +273,11 @@ const POS = () => {
 
     e.preventDefault();
 
-    console.log("🔍 Searching for:", query);
-    console.log("📦 Products in POS:", products.map(p => ({ name: p.name, barcode: p.barcode, sku: p.sku, stock: p.stock })));
-
     // 1. Exact match on barcode or SKU
     let product = products.find(
       (p) => p.barcode?.toLowerCase() === query.toLowerCase() ||
         p.sku?.toLowerCase() === query.toLowerCase()
     );
-    console.log("🎯 Exact match?", product ? product.name : "none");
 
     // 2. Partial match
     if (!product) {
@@ -278,7 +286,6 @@ const POS = () => {
           p.sku.toLowerCase().includes(query.toLowerCase()) ||
           (p.barcode && p.barcode.toLowerCase().includes(query.toLowerCase()))
       );
-      console.log("🔍 Partial matches:", filtered.length, filtered.map(p => p.name));
       if (filtered.length === 1) {
         product = filtered[0];
       } else if (filtered.length > 1) {
@@ -291,7 +298,6 @@ const POS = () => {
     }
 
     if (product) {
-      console.log("✅ Adding product:", product.name);
       if (needsCalculator(product)) {
         sendToCalculator(product);
         toast.success(`🔊 ${product.name} → Calculator`, { position: 'top-right' });
@@ -333,7 +339,56 @@ const POS = () => {
     setAmountPaid(total);
   }, [total]);
 
-  // --- Print functions (ESC/POS and HTML) ---
+  // --- Print (single shared HTML generator; ESC/POS thermal path kept separate) ---
+  const buildReceiptData = (
+    saleData: PrintData,
+    finalCustomer?: CustomerRecord | null,
+  ): ReceiptData => {
+    const receiptItems = cart.map((item) => {
+      const weight = item.weight || 0;
+      const rate = goldRate || 0;
+      const making = rate > 0 && weight > 0
+        ? Math.max(0, item.unit_price - rate * weight)
+        : 0;
+      return {
+        name: item.name,
+        qty: item.qty,
+        price: item.unit_price,
+        weight,
+        purity: item.purity,
+        making: Math.round(making),
+        hsnCode: item.hsn_code,
+        mrp: item.mrp,
+        gstRate: gstEnabled ? 3 : 0,
+      };
+    });
+
+    return {
+      invoiceNumber: saleData.invoice_number,
+      customerName: saleData.customer_name,
+      customerPhone: finalCustomer?.phone,
+      customerAddress: finalCustomer?.address || undefined,
+      customerGstin: finalCustomer?.gstin || undefined,
+      salesman: salesman || undefined,
+      items: receiptItems,
+      subtotal: saleData.subtotal,
+      tax: saleData.tax,
+      total: saleData.total,
+      docType,
+      goldRate,
+      exchangeItems,
+      paymentBreakdown: {
+        cash: paymentMethod === "Cash" ? amountPaid : 0,
+        card: paymentMethod === "Card" ? amountPaid : 0,
+        cheque: 0,
+        online: paymentMethod === "UPI" ? amountPaid : 0,
+      },
+      netPayable: total,
+      gstEnabled,
+    };
+  };
+
+  // --- Print functions (ESC/POS thermal + browser fallback via shared receiptUtils) ---
   const generateReceiptData = (saleData: {
     invoice_number: string;
     customer_name: string;
@@ -351,7 +406,7 @@ const POS = () => {
 
     encoder
       .initialize()
-      .text('Rajlakshmi   JEWELLERS')
+      .text(SHOP_CONFIG.name)
       .newline()
       .text('================================')
       .newline()
@@ -387,20 +442,26 @@ const POS = () => {
     }
 
     // Print payment breakdown
-    const paymentMethod = saleData.paymentMethod || 'Cash';
-    const amountPaid = saleData.amountPaid || saleData.total;
+    const paymentMethodLocal = saleData.paymentMethod || 'Cash';
+    const amountPaidLocal = saleData.amountPaid || saleData.total;
 
     encoder.text('--------------------------------').newline();
     encoder.text('PAYMENT:').newline();
-    encoder.text(`Method: ${paymentMethod}`).newline();
-    encoder.text(`Paid: ₹${amountPaid.toLocaleString()}`).newline();
-    if (amountPaid < saleData.total) {
-      encoder.text(`Pending: ₹${(saleData.total - amountPaid).toLocaleString()}`).newline();
+    encoder.text(`Method: ${paymentMethodLocal}`).newline();
+    encoder.text(`Paid: ₹${amountPaidLocal.toLocaleString()}`).newline();
+    if (amountPaidLocal < saleData.total) {
+      encoder.text(`Pending: ₹${(saleData.total - amountPaidLocal).toLocaleString()}`).newline();
     }
+
+    const cgst = gstEnabled ? Math.round(saleData.tax / 2) : 0;
+    const sgst = gstEnabled ? saleData.tax - cgst : 0;
 
     encoder.text('================================').newline();
     encoder.text(`Subtotal:     ₹${saleData.subtotal.toLocaleString()}`).newline();
-    encoder.text(`GST (3%):     ₹${saleData.tax.toLocaleString()}`).newline();
+    if (gstEnabled) {
+      encoder.text(`CGST:         ₹${cgst.toLocaleString()}`).newline();
+      encoder.text(`SGST:         ₹${sgst.toLocaleString()}`).newline();
+    }
     if (exchangeTotal > 0) {
       encoder.text(`Exchange:    -₹${exchangeTotal.toLocaleString()}`).newline();
     }
@@ -411,216 +472,10 @@ const POS = () => {
 
     return encoder.encode();
   };
-  const generateReceiptHTML = (
-    saleData: {
-      invoiceNumber: string;
-      customerName: string;
-      created_at?: string;
-      items: {
-        name: string;
-        qty: number;
-        price: number;
-        weight?: number;
-        making?: number;
-        purity?: string;
-      }[];
-      subtotal: number;
-      tax: number;
-      total: number;
-      docType: "estimate" | "invoice";
-      goldRate?: number;
-      exchangeItems?: ExchangeItem[];
-      paymentBreakdown?: { cash: number; card: number; cheque: number; online: number };
-      netPayable?: number;
-    },
-    docTitle: string
-  ) => {
-    const title = saleData.docType === "estimate" ? "ESTIMATE" : "TAX INVOICE";
-    const today = new Date().toLocaleString();
-    const goldRateDisplay = saleData.goldRate ? `₹${saleData.goldRate.toLocaleString()}/gm` : '—';
-    const exchangeTotal = saleData.exchangeItems?.reduce((sum, i) => sum + i.value, 0) || 0;
 
-    return `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>${docTitle}</title>
-      <style>
-        body { font-family: 'Arial', sans-serif; width: 380px; margin: 0 auto; padding: 16px; }
-        .header { text-align: center; border-bottom: 2px solid #c8a45a; margin-bottom: 16px; }
-        .header h1 { margin: 0; color: #c8a45a; font-size: 20px; }
-        .header p { margin: 4px 0; font-size: 12px; color: #666; }
-        .details { font-size: 12px; margin: 12px 0; display: flex; justify-content: space-between; }
-        .items { width: 100%; font-size: 11px; border-collapse: collapse; margin: 12px 0; }
-        .items th, .items td { text-align: left; padding: 6px 2px; border-bottom: 1px solid #ddd; }
-        .items th { border-bottom: 2px solid #c8a45a; background: #f9f9f9; }
-        .totals { margin-top: 12px; font-size: 12px; border-top: 1px solid #ccc; padding-top: 8px; }
-        .total-row { font-weight: bold; font-size: 14px; margin-top: 6px; }
-        .exchange-box { margin: 12px 0; padding: 8px; background: #f9f9f9; border: 1px solid #ddd; font-size: 11px; }
-        .payment-breakup { margin-top: 12px; font-size: 11px; border-top: 1px dashed #ccc; padding-top: 8px; }
-        .footer { text-align: center; margin-top: 20px; font-size: 11px; color: #888; }
-        .right { text-align: right; }
-      </style>
-    </head>
-    <body>
-      <div class="header">
-        <h1>Rajlakshmi  JEWELLERS</h1>
-        <p>${today}</p>
-      </div>
-      <div class="details">
-        <span><strong>${title}:</strong> ${saleData.invoiceNumber}</span>
-        <span><strong>Gold Rate:</strong> ${goldRateDisplay}</span>
-      </div>
-      <div class="details">
-        <span><strong>Customer:</strong> ${saleData.customerName || 'Walk-in Customer'}</span>
-      </div>
-
-      <table class="items">
-        <thead>
-          <tr>
-            <th>Particulars</th>
-            <th>Pcs</th>
-            <th>Wt(g)</th>
-            <th>Making</th>
-            <th class="right">Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${saleData.items.map(item => {
-      const weight = item.weight || (item.price / (saleData.goldRate || 5000)).toFixed(2);
-      const making = item.making || 0;
-      const amount = item.price * item.qty;
-      return `
-              <tr>
-                <td>${item.name} ${item.purity ? `(${item.purity})` : ''}</td>
-                <td>${item.qty}</td>
-                <td>${typeof weight === 'number' ? weight.toFixed(2) : weight}</td>
-                <td>₹${making.toLocaleString()}</td>
-                <td class="right">₹${amount.toLocaleString()}</td>
-              </tr>
-            `;
-    }).join('')}
-        </tbody>
-      </table>
-
-      ${exchangeTotal > 0 ? `
-        <div class="exchange-box">
-          <strong>EXCHANGE METAL</strong>
-          ${saleData.exchangeItems?.map(ex => `
-           <div>${ex.description || 'Old Ornament'} : ${ex.weight}g @ ₹${ex.rate}/gm = ₹${ex.value}</div>
-          `).join('')}
-        </div>
-      ` : ''}
-
-      <div class="totals">
-        <div>Subtotal: ₹${saleData.subtotal.toLocaleString()}</div>
-        <div>GST (3%): ₹${saleData.tax.toLocaleString()}</div>
-        ${exchangeTotal > 0 ? `<div>Exchange Deduction: -₹${exchangeTotal.toLocaleString()}</div>` : ''}
-        <div class="total-row">Net Payable: ₹${(saleData.netPayable || saleData.total).toLocaleString()}</div>
-      </div>
-
-      <div class="payment-breakup">
-        <strong>Payment</strong>
-        <div>By Cash: ₹${saleData.paymentBreakdown?.cash?.toLocaleString() || '0'}</div>
-        <div>By Card: ₹${saleData.paymentBreakdown?.card?.toLocaleString() || '0'}</div>
-        <div>By Cheque: ₹${saleData.paymentBreakdown?.cheque?.toLocaleString() || '0'}</div>
-        <div>By Online: ₹${saleData.paymentBreakdown?.online?.toLocaleString() || '0'}</div>
-      </div>
-
-      <div class="footer">
-        Thank you for shopping at Rajlakshmi Jewel ERP!
-      </div>
-    </body>
-    </html>
-  `;
-  };
-
-  const printViaBrowser = (saleData: {
-    invoiceNumber: string;
-    customerName: string;
-    items: CartItem[];   // use full CartItem type to get weight, purity, etc.
-    subtotal: number;
-    tax: number;
-    total: number;
-    docType: "estimate" | "invoice";
-    goldRate?: number;
-    exchangeItems?: ExchangeItem[];
-    paymentBreakdown?: { cash: number; card: number; cheque: number; online: number };
-    netPayable?: number;
-  }) => {
-    const dateStr = new Date().toISOString().slice(0, 10);
-    const safeCustomerName = saleData.customerName
-      .replace(/[^a-z0-9]/gi, '_')
-      .substring(0, 20);
-    const pdfTitle = `${saleData.docType === 'estimate' ? 'ESTIMATE' : 'INVOICE'}_${saleData.invoiceNumber}_${safeCustomerName}_${dateStr}`;
-
-    // Prepare items for receipt (include weight, purity, making)
-    const receiptItems = saleData.items.map(item => ({
-      name: item.name,
-      qty: item.qty,
-      price: item.unit_price,
-      weight: item.weight,
-      purity: item.purity,
-      making: (item.unit_price - (saleData.goldRate || 0) * item.weight) > 0
-        ? (item.unit_price - (saleData.goldRate || 0) * item.weight)
-        : 0,
-    }));
-
-    const receiptData = {
-      invoiceNumber: saleData.invoiceNumber,
-      customerName: saleData.customerName,
-      items: receiptItems,
-      subtotal: saleData.subtotal,
-      tax: saleData.tax,
-      total: saleData.total,
-      docType: saleData.docType,
-      goldRate: saleData.goldRate,
-      exchangeItems: saleData.exchangeItems,
-      paymentBreakdown: saleData.paymentBreakdown,
-      netPayable: saleData.netPayable,
-    };
-
-    const printContent = generateReceiptHTML(receiptData, pdfTitle);
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      toast.error('Please allow pop-ups to print');
-      return;
-    }
-    printWindow.document.write(printContent);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-  };
-  const tryPrint = useCallback(async (saleData: {
-    invoice_number: string;
-    customer_name: string;
-    created_at: string;
-    items: { name: string; qty: number; price: number }[];
-    subtotal: number;
-    tax: number;
-    total: number;
-  }) => {
+  const tryPrint = useCallback(async (saleData: PrintData, finalCustomer?: CustomerRecord | null) => {
     const totalExchangeValue = exchangeItems.reduce((sum, i) => sum + i.value, 0);
-
-    // Build complete data for the receipt (including all extra fields)
-    const browserData = {
-      invoiceNumber: saleData.invoice_number,
-      customerName: saleData.customer_name,
-      items: cart,   // send full CartItem objects (with weight, purity, etc.)
-      subtotal: saleData.subtotal,
-      tax: saleData.tax,
-      total: saleData.total,
-      docType,
-      goldRate: goldRate,
-      exchangeItems: exchangeItems,
-      paymentBreakdown: {
-        cash: paymentMethod === "Cash" ? amountPaid : 0,
-        card: paymentMethod === "Card" ? amountPaid : 0,
-        cheque: 0,   // add cheque if needed
-        online: paymentMethod === "UPI" ? amountPaid : 0,
-      },
-      netPayable: total,
-    };
+    const browserData = buildReceiptData(saleData, finalCustomer ?? selectedCustomer);
 
     try {
       await qz.websocket.connect();
@@ -643,9 +498,9 @@ const POS = () => {
       toast.success('Bill printed on thermal printer!');
     } catch (err) {
       console.warn('QZ Tray failed, fallback to browser print', err);
-      printViaBrowser(browserData);   // now passes all extra fields
+      printViaBrowser(browserData);
     }
-  }, [docType, goldRate, exchangeItems, paymentMethod, amountPaid, total, cart]);
+  }, [docType, goldRate, exchangeItems, paymentMethod, amountPaid, total, cart, selectedCustomer, salesman, gstEnabled]);
 
 
   // --- Estimate generation (no stock deduction, no payment) ---
@@ -658,10 +513,11 @@ const POS = () => {
         email: newCustomerEmail.trim() || null,
         date_of_birth: newCustomerDob || null,
         address: newCustomerAddress.trim() || null,
+        gstin: newCustomerGstin.trim() || null,
         loyalty_points: 0,
         total_purchases: 0,
       });
-      finalCustomer = { id: newId, name: newCustomerName.trim(), phone: newCustomerPhone.trim(), email: newCustomerEmail.trim() || null, date_of_birth: newCustomerDob || null, loyalty_points: 0, total_purchases: 0 };
+      finalCustomer = { id: newId, name: newCustomerName.trim(), phone: newCustomerPhone.trim(), email: newCustomerEmail.trim() || null, date_of_birth: newCustomerDob || null, address: newCustomerAddress.trim() || null, gstin: newCustomerGstin.trim() || null, loyalty_points: 0, total_purchases: 0 };
     }
     const estimateNumber = `EST-${Date.now()}`;
     await addItem("sales", {
@@ -673,7 +529,7 @@ const POS = () => {
       customer_id: finalCustomer?.id || null,
       customer_name: finalCustomer?.name || null,
       customer_phone: finalCustomer?.phone || null,
-      gold_rate: goldRate,   // add this
+      gold_rate: goldRate,
       exchange_items: exchangeItems,
       gst_enabled: gstEnabled,
     });
@@ -685,7 +541,7 @@ const POS = () => {
       subtotal, tax, total,
     };
     setLastPrintData(printData);
-    await tryPrint(printData);
+    await tryPrint(printData, finalCustomer);
     // Reset cart and form
     setCart([]);
     setSelectedCustomer(null);
@@ -709,10 +565,11 @@ const POS = () => {
           email: newCustomerEmail.trim() || null,
           date_of_birth: newCustomerDob || null,
           address: newCustomerAddress.trim() || null,
+          gstin: newCustomerGstin.trim() || null,
           loyalty_points: 0,
           total_purchases: 0,
         });
-        finalCustomer = { id: newId, name: newCustomerName.trim(), phone: newCustomerPhone.trim(), email: newCustomerEmail.trim() || null, date_of_birth: newCustomerDob || null, loyalty_points: 0, total_purchases: 0 };
+        finalCustomer = { id: newId, name: newCustomerName.trim(), phone: newCustomerPhone.trim(), email: newCustomerEmail.trim() || null, date_of_birth: newCustomerDob || null, address: newCustomerAddress.trim() || null, gstin: newCustomerGstin.trim() || null, loyalty_points: 0, total_purchases: 0 };
       }
       const invoiceNumber = `INV-${Date.now()}`;
       await addItem("sales", {
@@ -771,7 +628,7 @@ const POS = () => {
         subtotal, tax, total,
       };
       setLastPrintData(printData);
-      await tryPrint(printData);
+      await tryPrint(printData, finalCustomer);
       setCart([]);
       setSelectedCustomer(null);
       setBirthdayDiscountApplied(false);
@@ -792,6 +649,7 @@ const POS = () => {
     setNewCustomerEmail("");
     setNewCustomerDob("");
     setNewCustomerAddress("");
+    setNewCustomerGstin("");
     setCustomerSearch("");
   };
 
@@ -801,7 +659,7 @@ const POS = () => {
       if (existing.qty >= product.stock) { toast.error("Not enough stock"); return; }
       setCart(cart.map(item => item.id === product.id ? { ...item, qty: item.qty + 1 } : item));
     } else {
-      setCart([...cart, { id: product.id, name: product.name, weight: product.weight, unit_price: product.unit_price, stock: product.stock, qty: 1, sku: product.sku, metal_type: product.metal_type }]);
+      setCart([...cart, { id: product.id, name: product.name, weight: product.weight, unit_price: product.unit_price, stock: product.stock, qty: 1, sku: product.sku, metal_type: product.metal_type, hsn_code: product.hsn_code }]);
     }
     toast.success(`${product.name} added to cart`, { duration: 1000, position: 'top-right' });
   };
@@ -815,7 +673,7 @@ const POS = () => {
         if (existing.qty >= product.stock) { toast.error("Not enough stock"); return; }
         setCart(cart.map(item => item.id === product.id ? { ...item, unit_price: result.calculatedPrice, qty: item.qty + 1, calculatedPrice: true, purity: result.purity } : item));
       } else {
-        setCart([...cart, { id: product.id, name: product.name, weight: result.weight, unit_price: result.calculatedPrice, stock: product.stock, qty: 1, sku: product.sku, calculatedPrice: true, purity: result.purity, metal_type: product.metal_type }]);
+        setCart([...cart, { id: product.id, name: product.name, weight: result.weight, unit_price: result.calculatedPrice, stock: product.stock, qty: 1, sku: product.sku, calculatedPrice: true, purity: result.purity, metal_type: product.metal_type, hsn_code: product.hsn_code }]);
       }
     } else {
       setCart([...cart, { id: `calc-${Date.now()}`, name: result.productName, weight: result.weight, unit_price: result.calculatedPrice, stock: 9999, qty: 1, sku: "CUSTOM", calculatedPrice: true, purity: result.purity }]);
@@ -1049,6 +907,11 @@ const POS = () => {
                     <span className="text-sm font-mono">{invoiceGstEnabled ? `+ ₹${tax.toLocaleString()}` : 'Exempt'}</span>
                   </div>
                 )}
+                {/* Salesman (shows on printed invoice) */}
+                <div className="space-y-1 pt-2">
+                  <Label className="text-sm">Salesman (optional)</Label>
+                  <Input placeholder="e.g. Ramesh" value={salesman} onChange={(e) => setSalesman(e.target.value)} />
+                </div>
                 {/* Amount Paid Today (only for invoices) */}
                 {docType === "invoice" && (
                   <div className="space-y-2 pt-3">
@@ -1113,6 +976,7 @@ const POS = () => {
                   <div><Label className="text-xs">Phone *</Label><Input placeholder="Phone number" value={newCustomerPhone} onChange={(e) => setNewCustomerPhone(e.target.value)} type="tel" maxLength={10} /></div>
                   <div><Label className="text-xs">Email</Label><Input placeholder="Email (optional)" value={newCustomerEmail} onChange={(e) => setNewCustomerEmail(e.target.value)} type="email" /></div>
                   <div><Label className="text-xs">Date of Birth</Label><Input type="date" value={newCustomerDob} onChange={(e) => setNewCustomerDob(e.target.value)} /></div>
+                  <div><Label className="text-xs">GST No. (optional, for B2B)</Label><Input placeholder="GSTIN" value={newCustomerGstin} onChange={(e) => setNewCustomerGstin(e.target.value)} /></div>
                 </div>
                 <div><Label className="text-xs">Address</Label><Input placeholder="Address (optional)" value={newCustomerAddress} onChange={(e) => setNewCustomerAddress(e.target.value)} /></div>
               </div>
